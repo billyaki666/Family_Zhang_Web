@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>张氏族谱 · 世系图</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="seal">张</div>
+      <div>
+        <p>慎终追远 · 敦亲睦族</p>
+        <h1>张氏族谱</h1>
+      </div>
+    </div>
+    <div class="toolbar">
+      <label class="search">
+        <span>⌕</span>
+        <input id="searchInput" placeholder="查找族人姓名">
+      </label>
+      <button id="zoomOut" class="icon-btn" title="缩小">−</button>
+      <span id="zoomLabel">100%</span>
+      <button id="zoomIn" class="icon-btn" title="放大">＋</button>
+      <button id="resetView" class="ghost-btn">归位</button>
+      <button id="addRoot" class="primary-btn">＋ 新增族人</button>
+    </div>
+  </header>
+
+  <main id="viewport" class="viewport">
+    <div class="generation-rail" id="generationRail"></div>
+    <div id="canvas" class="canvas">
+      <svg id="links" class="links"></svg>
+      <div id="tree"></div>
+    </div>
+    <div class="canvas-tip"><kbd>空格</kbd> + 拖动 / 鼠标中键移动画布 · 滚轮缩放</div>
+    <div class="legend">
+      <span><i class="dot male"></i>男性</span>
+      <span><i class="dot female"></i>女性</span>
+      <span><i class="line-sample"></i>血缘</span>
+      <span><i class="line-sample marriage"></i>婚姻</span>
+    </div>
+  </main>
+
+  <aside id="drawer" class="drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <div>
+        <span class="eyebrow">人物档案</span>
+        <h2 id="drawerTitle">编辑族人</h2>
+      </div>
+      <button id="closeDrawer" class="close-btn">×</button>
+    </div>
+    <form id="personForm">
+      <input id="personId" type="hidden">
+      <div class="form-row">
+        <label>姓名<input id="personName" required></label>
+        <label>性别
+          <select id="personGender"><option value="male">男</option><option value="female">女</option></select>
+        </label>
+      </div>
+      <div class="form-row">
+        <label>世代<input id="personGeneration" type="number" min="1" max="30" required></label>
+        <label>字辈<input id="personZi" maxlength="4" placeholder="如：源"></label>
+      </div>
+      <label class="switch-row">
+        <span>显示字辈标记</span>
+        <input id="personShowZi" type="checkbox">
+      </label>
+      <div class="form-row">
+        <label>卡片标签<input id="personTagText" maxlength="12" placeholder="如：第十一世"></label>
+        <label>标签颜色<input id="personTagColor" type="color" value="#8c2f25"></label>
+      </div>
+      <label>生平备注<textarea id="personNote" rows="3" placeholder="生卒、排行、迁居等信息"></textarea></label>
+      <div class="relation-box" id="relationBox"></div>
+      <div class="form-actions">
+        <button id="deletePerson" type="button" class="danger-btn">删除人物</button>
+        <button type="submit" class="primary-btn">保存修改</button>
+      </div>
+    </form>
+  </aside>
+  <div id="modalBackdrop" class="backdrop"></div>
+
+  <dialog id="relationDialog">
+    <form id="relationForm" method="dialog">
+      <div class="drawer-head">
+        <div><span class="eyebrow">建立关系</span><h2 id="relationTitle">新增亲属</h2></div>
+        <button value="cancel" class="close-btn">×</button>
+      </div>
+      <input id="relationPersonId" type="hidden">
+      <input id="relationType" type="hidden">
+      <label>姓名<input id="relationName" required></label>
+      <div class="form-row">
+        <label>性别<select id="relationGender"><option value="male">男</option><option value="female">女</option></select></label>
+        <label>字辈<input id="relationZi" maxlength="4"></label>
+      </div>
+      <label>备注<textarea id="relationNote" rows="2"></textarea></label>
+      <button value="default" class="primary-btn wide">确认新增</button>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
