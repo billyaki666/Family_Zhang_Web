@@ -129,65 +129,65 @@ function layout() {
     }
   });
   allUnits.forEach(unit=>unit.children.sort((a,b)=>unitOrder(a)-unitOrder(b)));
-  const generations=[...unitsByGen.keys()].sort((a,b)=>a-b);
-  generations.forEach(generation=>{
-    const units=unitsByGen.get(generation).sort((a,b)=>unitOrder(a)-unitOrder(b));
-    let anchor=0;
-    units.forEach((unit,index)=>{
-      if(index){
-        const previous=units[index-1];
-        anchor+=previous.width-previous.bloodOffset+FAMILY_GAP+unit.bloodOffset;
-      }
-      unit.anchor=anchor;
-    });
-    const left=units[0].anchor-units[0].bloodOffset;
-    const last=units[units.length-1];
-    const right=last.anchor+last.width-last.bloodOffset;
-    const shift=(left+right)/2;
-    units.forEach(unit=>unit.anchor-=shift);
-  });
-  const projectRow=(units,targets)=>{
-    const offsets=[0];
-    for(let index=1;index<units.length;index++){
-      const previous=units[index-1],unit=units[index];
-      offsets[index]=offsets[index-1]+previous.width-previous.bloodOffset+FAMILY_GAP+unit.bloodOffset;
+  const buildCompactTree=(unit,active=new Set())=>{
+    if(active.has(unit)){
+      return {placements:new Map([[unit,0]]),left:[-unit.bloodOffset],right:[unit.width-unit.bloodOffset]};
     }
-    const pools=[];
-    units.forEach((unit,index)=>{
-      pools.push({start:index,end:index,weight:1,value:targets[index]-offsets[index]});
-      while(pools.length>1&&pools[pools.length-2].value>pools[pools.length-1].value){
-        const right=pools.pop(),left=pools.pop();
-        const weight=left.weight+right.weight;
-        pools.push({
-          start:left.start,end:right.end,weight,
-          value:(left.value*left.weight+right.value*right.weight)/weight
-        });
+    const nextActive=new Set(active);
+    nextActive.add(unit);
+    const childLayouts=unit.children.map(child=>buildCompactTree(child,nextActive));
+    if(!childLayouts.length){
+      return {placements:new Map([[unit,0]]),left:[-unit.bloodOffset],right:[unit.width-unit.bloodOffset]};
+    }
+    const shifts=[],mergedLeft=[],mergedRight=[];
+    childLayouts.forEach((layout,index)=>{
+      let shift=0;
+      if(index){
+        for(let depth=0;depth<Math.min(mergedRight.length,layout.left.length);depth++){
+          shift=Math.max(shift,mergedRight[depth]+FAMILY_GAP-layout.left[depth]);
+        }
       }
-    });
-    pools.forEach(pool=>{
-      for(let index=pool.start;index<=pool.end;index++){
-        units[index].anchor=pool.value+offsets[index];
-      }
-    });
-  };
-  for(let pass=0;pass<36;pass++){
-    generations.slice(1).forEach(generation=>{
-      const units=unitsByGen.get(generation);
-      const targets=units.map(unit=>unit.parent?unit.parent.anchor:unit.anchor);
-      projectRow(units,targets);
-    });
-    generations.slice(0,-1).reverse().forEach(generation=>{
-      const units=unitsByGen.get(generation);
-      const targets=units.map(unit=>{
-        const childCenter=unit.children.length
-          ? unit.children.reduce((sum,child)=>sum+child.anchor,0)/unit.children.length
-          : null;
-        if(childCenter===null)return unit.parent?unit.parent.anchor:unit.anchor;
-        return unit.parent?(unit.parent.anchor+childCenter)/2:childCenter;
+      shifts.push(shift);
+      layout.left.forEach((value,depth)=>{
+        const shifted=value+shift;
+        mergedLeft[depth]=mergedLeft[depth]===undefined?shifted:Math.min(mergedLeft[depth],shifted);
+        mergedRight[depth]=mergedRight[depth]===undefined?layout.right[depth]+shift:Math.max(mergedRight[depth],layout.right[depth]+shift);
       });
-      projectRow(units,targets);
     });
-  }
+    const center=(shifts[0]+shifts[shifts.length-1])/2;
+    const placements=new Map([[unit,0]]);
+    const left=[-unit.bloodOffset],right=[unit.width-unit.bloodOffset];
+    childLayouts.forEach((layout,index)=>{
+      const shift=shifts[index]-center;
+      layout.placements.forEach((value,key)=>placements.set(key,value+shift));
+      layout.left.forEach((value,depth)=>{
+        const targetDepth=depth+1,shiftedLeft=value+shift,shiftedRight=layout.right[depth]+shift;
+        left[targetDepth]=left[targetDepth]===undefined?shiftedLeft:Math.min(left[targetDepth],shiftedLeft);
+        right[targetDepth]=right[targetDepth]===undefined?shiftedRight:Math.max(right[targetDepth],shiftedRight);
+      });
+    });
+    return {placements,left,right};
+  };
+  const roots=allUnits.filter(unit=>!unit.parent).sort((a,b)=>unitOrder(a)-unitOrder(b));
+  const forestLayouts=roots.map(root=>buildCompactTree(root));
+  const forestLeft=[],forestRight=[];
+  let rootCursor=0;
+  forestLayouts.forEach((layout,index)=>{
+    let shift=0;
+    if(index){
+      for(let depth=0;depth<Math.min(forestRight.length,layout.left.length);depth++){
+        shift=Math.max(shift,forestRight[depth]+FAMILY_GAP*2-layout.left[depth]);
+      }
+    }
+    shift=Math.max(shift,rootCursor-layout.left[0]);
+    layout.placements.forEach((value,unit)=>unit.anchor=value+shift);
+    layout.left.forEach((value,depth)=>{
+      const shiftedLeft=value+shift,shiftedRight=layout.right[depth]+shift;
+      forestLeft[depth]=forestLeft[depth]===undefined?shiftedLeft:Math.min(forestLeft[depth],shiftedLeft);
+      forestRight[depth]=forestRight[depth]===undefined?shiftedRight:Math.max(forestRight[depth],shiftedRight);
+    });
+    rootCursor=Math.max(...forestRight)+FAMILY_GAP*2;
+  });
   allUnits.forEach(unit=>unit.x=unit.anchor-unit.bloodOffset);
   const minX=Math.min(...allUnits.map(unit=>unit.x));
   const maxX=Math.max(...allUnits.map(unit=>unit.x+unit.width));
