@@ -72,8 +72,24 @@
         <input id="personShowZi" type="checkbox">
       </label>
       <div class="form-row">
-        <label>卡片标签<input id="personTagText" maxlength="12" placeholder="如：第十一世"></label>
-        <label>标签颜色<input id="personTagColor" type="color" value="#8c2f25"></label>
+        <label>卡片标签<input id="personTagText" maxlength="12" placeholder="默认不显示"></label>
+        <label>标签颜色
+          <input id="personTagColor" type="hidden" value="#8c2f25">
+          <span id="tagColorPalette" class="color-palette">
+            <button type="button" data-color="#8c2f25" style="--swatch:#8c2f25" title="朱砂"></button>
+            <button type="button" data-color="#a77b36" style="--swatch:#a77b36" title="鎏金"></button>
+            <button type="button" data-color="#536b62" style="--swatch:#536b62" title="松绿"></button>
+            <button type="button" data-color="#3f6375" style="--swatch:#3f6375" title="黛蓝"></button>
+            <button type="button" data-color="#72566f" style="--swatch:#72566f" title="烟紫"></button>
+            <button type="button" data-color="#72513b" style="--swatch:#72513b" title="檀棕"></button>
+            <button type="button" data-color="#5d6468" style="--swatch:#5d6468" title="青灰"></button>
+            <button type="button" data-color="#2f2b27" style="--swatch:#2f2b27" title="墨黑"></button>
+          </span>
+        </label>
+      </div>
+      <div class="form-row">
+        <label>出生时间<input id="personBirthDate" type="date"></label>
+        <label>死亡时间<input id="personDeathDate" type="date"></label>
       </div>
       <label>生平备注<textarea id="personNote" rows="3" placeholder="生卒、排行、迁居等信息"></textarea></label>
       <div class="relation-box" id="relationBox"></div>
@@ -105,7 +121,7 @@
 
   <dialog id="authDialog" class="auth-dialog">
     <div class="drawer-head">
-      <div><span class="eyebrow">账号权限</span><h2>管理员登录</h2></div>
+      <div><span class="eyebrow">账号权限</span><h2>登录与族人注册</h2></div>
       <button id="closeAuth" class="close-btn">×</button>
     </div>
     <div class="auth-grid">
@@ -114,25 +130,38 @@
         <label>账号<input id="loginUsername" autocomplete="username" required></label>
         <label>密码<input id="loginPassword" type="password" autocomplete="current-password" required></label>
         <p id="loginMessage" class="form-message"></p>
-        <button class="primary-btn wide" type="submit">管理员登录</button>
+        <button class="primary-btn wide" type="submit">登录</button>
       </form>
       <form id="registerForm">
-        <h3>注册管理员</h3>
-        <label>账号<input id="registerUsername" minlength="3" required></label>
+        <h3>注册族人账号</h3>
+        <label>本人姓名（登录账号）<input id="registerName" minlength="2" required></label>
+        <label>所属世代
+          <select id="registerGeneration" required>
+            <option value="">请选择世代</option>
+          </select>
+        </label>
         <label>密码<input id="registerPassword" type="password" minlength="6" required></label>
         <label>确认密码<input id="registerConfirm" type="password" minlength="6" required></label>
         <p id="registerMessage" class="form-message"></p>
         <button class="ghost-btn wide" type="submit">注册账号</button>
       </form>
     </div>
-    <p class="auth-note">游客无需登录，可直接浏览族谱；只有管理员可以修改数据。</p>
+    <p class="auth-note">游客可直接浏览；族人账号可提交修改申请；管理员账号固定为 admin123 / admin123，负责审核并维护族谱。</p>
   </dialog>
 
   <dialog id="historyDialog" class="history-dialog">
     <div class="drawer-head">
-      <div><span class="eyebrow">操作审计</span><h2>族谱修改记录</h2></div>
+      <div><span class="eyebrow">操作审计</span><h2 id="historyTitle">申请与修改记录</h2></div>
       <button id="closeHistory" class="close-btn">×</button>
     </div>
+    <h3 class="history-section-title">改动申请</h3>
+    <div class="history-table-wrap request-table-wrap">
+      <table class="history-table">
+        <thead><tr><th>提交时间</th><th>申请人</th><th>申请内容</th><th>状态</th><th>审核</th></tr></thead>
+        <tbody id="requestBody"></tbody>
+      </table>
+    </div>
+    <h3 class="history-section-title">已生效的修改记录</h3>
     <div class="history-table-wrap">
       <table class="history-table">
         <thead><tr><th>时间</th><th>操作者</th><th>操作</th><th>人物</th><th>修改内容</th></tr></thead>
