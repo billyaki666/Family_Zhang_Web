@@ -30,6 +30,14 @@
       <button id="authBtn" class="ghost-btn">登录 / 注册</button>
       <button id="logoutBtn" class="ghost-btn" hidden>退出</button>
     </div>
+    <div class="announcement-bar">
+      <span class="announcement-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M4 10v4h3l5 4V6L7 10H4zm11.5 2a3.5 3.5 0 0 0-2-3.12v6.24A3.5 3.5 0 0 0 15.5 12zm-2-7.1v2.06a5.5 5.5 0 0 1 0 10.08v2.06a7.5 7.5 0 0 0 0-14.2z"/></svg>
+      </span>
+      <div class="announcement-window"><span id="announcementText" class="announcement-text">欢迎查阅张氏族谱</span></div>
+      <button id="editAnnouncementBtn" class="announcement-action" hidden>编辑公告</button>
+      <button id="announcementHistoryBtn" class="announcement-action">历史公告</button>
+    </div>
   </header>
 
   <main id="viewport" class="viewport">
@@ -89,7 +97,10 @@
       </div>
       <div class="form-row">
         <label>出生时间<input id="personBirthDate" type="date"></label>
-        <label>死亡时间<input id="personDeathDate" type="date"></label>
+        <label>死亡时间
+          <input id="personDeathDate" type="date">
+          <span class="unknown-date"><input id="personDeathUnknown" type="checkbox"> 日期不详</span>
+        </label>
       </div>
       <label>生平备注<textarea id="personNote" rows="3" placeholder="生卒、排行、迁居等信息"></textarea></label>
       <div class="relation-box" id="relationBox"></div>
@@ -169,6 +180,18 @@
       </table>
     </div>
     <button id="clearHistory" class="danger-btn">清空记录</button>
+  </dialog>
+
+  <dialog id="announcementDialog" class="announcement-dialog">
+    <div class="drawer-head">
+      <div><span class="eyebrow">宗族公告</span><h2 id="announcementDialogTitle">历史公告</h2></div>
+      <button id="closeAnnouncement" class="close-btn">×</button>
+    </div>
+    <form id="announcementForm" hidden>
+      <label>公告内容<textarea id="announcementInput" rows="3" maxlength="300" placeholder="请输入公告内容"></textarea></label>
+      <button class="primary-btn" type="submit">发布公告</button>
+    </form>
+    <div id="announcementHistory" class="announcement-history"></div>
   </dialog>
 
   <script src="app.js"></script>

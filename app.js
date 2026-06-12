@@ -4,6 +4,7 @@ const USERS_KEY = "zhang-family-users-v1";
 const SESSION_KEY = "zhang-family-session-v1";
 const HISTORY_KEY = "zhang-family-history-v1";
 const REQUESTS_KEY = "zhang-family-requests-v1";
+const ANNOUNCEMENTS_KEY = "zhang-family-announcements-v1";
 const CARD_W = 64, SPOUSE_W = 48, CARD_H = 84, SPOUSE_GAP = 10, FAMILY_GAP = 18, ROW_GAP = 138, MARGIN = 110;
 
 const rawFamilies = [
@@ -83,6 +84,7 @@ data.people.forEach(p=>{
   if(p.tagText===`第${toChinese(p.generation)}世`)p.tagText="";
   p.birthDate=p.birthDate||"";
   p.deathDate=p.deathDate||"";
+  p.deathUnknown=Boolean(p.deathUnknown);
   p.tagColor=safeColor(p.tagColor);
 });
 let users = readStorage(USERS_KEY, [])
@@ -92,6 +94,7 @@ users.unshift({username:"admin123",name:"管理员",generation:0,passwordHash:pa
 localStorage.setItem(USERS_KEY,JSON.stringify(users));
 let historyRecords = readStorage(HISTORY_KEY, []);
 let changeRequests = readStorage(REQUESTS_KEY, []);
+let announcements = readStorage(ANNOUNCEMENTS_KEY, []);
 let currentUser = users.find(user => user.username === localStorage.getItem(SESSION_KEY)) || {username:"游客",role:"guest"};
 let scale=.72, panX=95, panY=50, selectedId=null, isPanning=false, spaceDown=false, start={};
 const $ = s => document.querySelector(s);
@@ -126,6 +129,7 @@ function renderAuthState(){
   $("#addRoot").hidden=!canPropose();
   $("#historyBtn").hidden=!(admin||member);
   $("#historyBtn").textContent=admin?"审核与记录":"我的申请";
+  $("#editAnnouncementBtn").hidden=!admin;
 }
 
 function layout() {
@@ -150,8 +154,14 @@ function layout() {
     const bloodId=component.find(id=>data.parentLinks.some(l=>l.child===id))
       || component.find(id=>data.parentLinks.some(l=>l.parent===id))
       || component[0];
-    const spouses=component.filter(id=>id!==bloodId);
-    const members=spouses.length>1?[spouses[0],bloodId,...spouses.slice(1)]:[...spouses,bloodId];
+    const members=[...component].sort((a,b)=>{
+      const genderOrder={male:0,female:1};
+      const difference=(genderOrder[person(a)?.gender]??2)-(genderOrder[person(b)?.gender]??2);
+      if(difference)return difference;
+      if(a===bloodId)return -1;
+      if(b===bloodId)return 1;
+      return Number(a.replace(/\D/g,""))-Number(b.replace(/\D/g,""));
+    });
     members.forEach(id => visited.add(id));
     const unit = {id:bloodId,bloodId,members,generation:person(bloodId).generation};
     members.forEach(id => unitByPerson[id] = unit);
@@ -278,11 +288,11 @@ function render() {
   canvas.style.width=width+"px"; canvas.style.height=height+"px";
   links.setAttribute("width",width); links.setAttribute("height",height); links.setAttribute("viewBox",`0 0 ${width} ${height}`);
   tree.innerHTML=data.people.map(p=>{
-    const q=pos[p.id], spouse=isSpouse(p.id), deceased=Boolean(p.deathDate);
+    const q=pos[p.id], spouse=isSpouse(p.id), deceased=Boolean(p.deathDate||p.deathUnknown);
     return `<article class="person ${p.gender} ${spouse?"spouse":""} ${deceased?"deceased":""} ${p.id===selectedId?"selected":""}" data-id="${p.id}" style="left:${q.x}px;top:${q.y}px">
       <div class="person-top"><span class="person-name">${esc(p.name)}</span>${p.showZi!==false?`<span class="zi-badge">${esc(p.zi||"未")}</span>`:""}</div>
       ${p.tagText?`<div class="person-tag" style="background:${safeColor(p.tagColor)}">${esc(p.tagText)}</div>`:""}
-      <div class="person-tooltip"><div><b>出生：</b>${esc(p.birthDate||"未填写")}</div><div><b>死亡：</b>${esc(p.deathDate||"未填写")}</div><div><b>生平：</b>${esc(p.note||"暂无备注")}</div></div>
+      <div class="person-tooltip"><div><b>出生：</b>${esc(p.birthDate||"未填写")}</div><div><b>死亡：</b>${esc(p.deathUnknown?"不详":p.deathDate||"未填写")}</div><div><b>生平：</b>${esc(p.note||"暂无备注")}</div></div>
     </article>`;
   }).join("");
   let svg="";
@@ -335,7 +345,7 @@ function openPerson(id){
   selectedId=id; const p=person(id); if(!p)return;
   $("#personId").value=p.id;$("#personName").value=p.name;$("#personGender").value=p.gender;
   $("#personGeneration").value=p.generation;$("#personZi").value=p.zi||"";$("#personShowZi").checked=p.showZi!==false;
-  $("#personTagText").value=p.tagText||"";setColorPalette(p.tagColor);$("#personBirthDate").value=p.birthDate||"";$("#personDeathDate").value=p.deathDate||"";$("#personNote").value=p.note||"";
+  $("#personTagText").value=p.tagText||"";setColorPalette(p.tagColor);$("#personBirthDate").value=p.birthDate||"";$("#personDeathDate").value=p.deathDate||"";$("#personDeathUnknown").checked=Boolean(p.deathUnknown);$("#personDeathDate").disabled=Boolean(p.deathUnknown)||!canPropose();$("#personNote").value=p.note||"";
   $("#drawerTitle").textContent=p.name;
   const parents=data.parentLinks.filter(l=>l.child===id).map(l=>person(l.parent)?.name).filter(Boolean);
   const children=data.parentLinks.filter(l=>l.parent===id).map(l=>person(l.child)?.name).filter(Boolean);
@@ -345,6 +355,7 @@ function openPerson(id){
     <div class="relation-list">父母：${esc(parents.join("、")||"未记录")}<br>配偶：${esc(spouses.join("、")||"未记录")}<br>子女：${esc(children.join("、")||"未记录")}</div>`;
   document.querySelectorAll("[data-rel]").forEach(b=>b.onclick=()=>openRelation(id,b.dataset.rel));
   $("#personForm").querySelectorAll("input,select,textarea").forEach(control=>control.disabled=!canPropose());
+  $("#personDeathDate").disabled=!canPropose()||$("#personDeathUnknown").checked;
   $("#tagColorPalette").querySelectorAll("button").forEach(button=>button.disabled=!canPropose());
   $("#personForm").querySelector(".form-actions").hidden=!canPropose();
   $("#deletePerson").textContent=canEdit()?"删除人物":"申请删除";
@@ -395,19 +406,23 @@ function applyChangeRequest(request){
   save();
   return true;
 }
-$("#personForm").onsubmit=e=>{e.preventDefault();if(!requireAccount())return;const p=person($("#personId").value);if(!p)return;const before={...p};const proposed={...p,name:$("#personName").value.trim(),gender:$("#personGender").value,generation:+$("#personGeneration").value,zi:$("#personZi").value.trim(),showZi:$("#personShowZi").checked,tagText:$("#personTagText").value.trim(),tagColor:$("#personTagColor").value,birthDate:$("#personBirthDate").value,deathDate:$("#personDeathDate").value,note:$("#personNote").value.trim()};const labels={name:"姓名",gender:"性别",generation:"世代",zi:"字辈",showZi:"字辈显示",tagText:"标签",tagColor:"标签颜色",birthDate:"出生时间",deathDate:"死亡时间",note:"备注"};const changes=Object.keys(labels).filter(key=>before[key]!==proposed[key]).map(key=>`${labels[key]}：${before[key]||"空"} → ${proposed[key]||"空"}`);if(!changes.length)return;if(canEdit()){Object.assign(p,proposed);save();addHistory("编辑人物",p.name,changes.join("；"));render();openPerson(p.id)}else{addRequest("editPerson",p.name,p.id,proposed,changes.join("；"));closeDrawer();alert("修改申请已提交，管理员审核通过后生效。")}};
+$("#personForm").onsubmit=e=>{e.preventDefault();if(!requireAccount())return;const p=person($("#personId").value);if(!p)return;const before={...p};const deathUnknown=$("#personDeathUnknown").checked;const proposed={...p,name:$("#personName").value.trim(),gender:$("#personGender").value,generation:+$("#personGeneration").value,zi:$("#personZi").value.trim(),showZi:$("#personShowZi").checked,tagText:$("#personTagText").value.trim(),tagColor:$("#personTagColor").value,birthDate:$("#personBirthDate").value,deathDate:deathUnknown?"":$("#personDeathDate").value,deathUnknown,note:$("#personNote").value.trim()};const labels={name:"姓名",gender:"性别",generation:"世代",zi:"字辈",showZi:"字辈显示",tagText:"标签",tagColor:"标签颜色",birthDate:"出生时间",deathDate:"死亡时间",deathUnknown:"死亡日期不详",note:"备注"};const changes=Object.keys(labels).filter(key=>before[key]!==proposed[key]).map(key=>`${labels[key]}：${before[key]||"空"} → ${proposed[key]||"空"}`);if(!changes.length)return;if(canEdit()){Object.assign(p,proposed);save();addHistory("编辑人物",p.name,changes.join("；"));render();openPerson(p.id)}else{addRequest("editPerson",p.name,p.id,proposed,changes.join("；"));closeDrawer();alert("修改申请已提交，管理员审核通过后生效。")}};
 $("#relationForm").onsubmit=e=>{
   e.preventDefault(); if(e.submitter?.value==="cancel"||!requireAccount())return;
   const base=person($("#relationPersonId").value),type=$("#relationType").value,id=`p${Date.now()}`;
   const generation=type==="parent"?base.generation-1:type==="child"?base.generation+1:base.generation;
-  const newPerson={id,name:$("#relationName").value.trim(),gender:$("#relationGender").value,generation,zi:$("#relationZi").value.trim(),note:$("#relationNote").value.trim(),showZi:type!=="spouse",tagText:"",tagColor:"#8c2f25",birthDate:"",deathDate:""};
+  const newPerson={id,name:$("#relationName").value.trim(),gender:$("#relationGender").value,generation,zi:$("#relationZi").value.trim(),note:$("#relationNote").value.trim(),showZi:type!=="spouse",tagText:"",tagColor:"#8c2f25",birthDate:"",deathDate:"",deathUnknown:false};
   if(canEdit()){applyRelationChange({baseId:base.id,type,newPerson});addHistory(type==="spouse"?"新增配偶":type==="parent"?"新增父母":"新增子女",newPerson.name,`与 ${base.name} 建立关系`);save();$("#relationDialog").close();render();openPerson(base.id)}
   else{addRequest("addRelation",newPerson.name,base.id,{baseId:base.id,type,newPerson},`申请与 ${base.name} 建立${type==="spouse"?"配偶":type==="parent"?"父母":"子女"}关系`);$("#relationDialog").close();closeDrawer();alert("亲属关系申请已提交，管理员审核通过后生效。")}
 };
 $("#deletePerson").onclick=()=>{if(!requireAccount())return;const id=$("#personId").value,p=person(id);if(!p||!confirm(canEdit()?`确定删除“${p.name}”及其全部关系吗？`:`确定提交删除“${p.name}”的申请吗？`))return;if(canEdit()){applyDeletePerson(id);addHistory("删除人物",p.name,"删除人物及其全部亲属关系");save();closeDrawer()}else{addRequest("deletePerson",p.name,id,{},"申请删除人物及其全部亲属关系");closeDrawer();alert("删除申请已提交，管理员审核通过后生效。")}};
-$("#addRoot").onclick=()=>{if(!requireAccount())return;const newPerson={id:`p${Date.now()}`,name:"新族人",gender:"male",generation:1,zi:"启",note:"",showZi:true,tagText:"",tagColor:"#8c2f25",birthDate:"",deathDate:""};if(canEdit()){data.people.push(newPerson);addHistory("新增人物","新族人","新增独立族人");save();render();openPerson(newPerson.id)}else{addRequest("addRoot","新族人","",newPerson,"申请新增独立族人");alert("新增人物申请已提交，管理员审核通过后生效。")}};
+$("#addRoot").onclick=()=>{if(!requireAccount())return;const newPerson={id:`p${Date.now()}`,name:"新族人",gender:"male",generation:1,zi:"启",note:"",showZi:true,tagText:"",tagColor:"#8c2f25",birthDate:"",deathDate:"",deathUnknown:false};if(canEdit()){data.people.push(newPerson);addHistory("新增人物","新族人","新增独立族人");save();render();openPerson(newPerson.id)}else{addRequest("addRoot","新族人","",newPerson,"申请新增独立族人");alert("新增人物申请已提交，管理员审核通过后生效。")}};
 $("#closeDrawer").onclick=closeDrawer;$("#modalBackdrop").onclick=closeDrawer;
 document.querySelectorAll("#tagColorPalette [data-color]").forEach(button=>button.onclick=()=>setColorPalette(button.dataset.color));
+$("#personDeathUnknown").onchange=()=>{
+  $("#personDeathDate").disabled=$("#personDeathUnknown").checked||!canPropose();
+  if($("#personDeathUnknown").checked)$("#personDeathDate").value="";
+};
 $("#zoomIn").onclick=()=>{scale=Math.min(1.5,scale+.1);applyTransform()};$("#zoomOut").onclick=()=>{scale=Math.max(.3,scale-.1);applyTransform()};
 $("#resetView").onclick=()=>{scale=.72;panX=95;panY=50;applyTransform()};
 $("#searchInput").oninput=e=>{const q=e.target.value.trim().toLowerCase();document.querySelectorAll(".person").forEach(el=>{const hit=!q||person(el.dataset.id).name.toLowerCase().includes(q);el.classList.toggle("search-dim",!!q&&!hit);el.classList.toggle("search-hit",!!q&&hit);});};
@@ -493,5 +508,39 @@ $("#clearHistory").onclick=()=>{
   localStorage.setItem(HISTORY_KEY,"[]");
   renderHistory();
 };
+function renderAnnouncement(){
+  const latest=announcements[0];
+  $("#announcementText").textContent=latest?.content||"欢迎查阅张氏族谱";
+}
+function renderAnnouncementHistory(){
+  $("#announcementHistory").innerHTML=announcements.length?announcements.map(item=>`<article class="announcement-item">
+    <time>${esc(new Date(item.time).toLocaleString("zh-CN",{hour12:false}))} · ${esc(item.user)}</time>
+    <p>${esc(item.content)}</p>
+  </article>`).join(""):`<div class="announcement-empty">暂无历史公告</div>`;
+}
+function openAnnouncementDialog(editMode){
+  $("#announcementDialogTitle").textContent=editMode?"发布公告":"历史公告";
+  $("#announcementForm").hidden=!editMode;
+  if(editMode)$("#announcementInput").value=announcements[0]?.content||"";
+  renderAnnouncementHistory();
+  $("#announcementDialog").showModal();
+}
+$("#editAnnouncementBtn").onclick=()=>{if(canEdit())openAnnouncementDialog(true)};
+$("#announcementHistoryBtn").onclick=()=>openAnnouncementDialog(false);
+$("#closeAnnouncement").onclick=()=>$("#announcementDialog").close();
+$("#announcementForm").onsubmit=e=>{
+  e.preventDefault();
+  if(!canEdit())return;
+  const content=$("#announcementInput").value.trim();
+  if(!content)return;
+  announcements.unshift({id:`a${Date.now()}`,content,time:new Date().toISOString(),user:currentUser.username});
+  announcements=announcements.slice(0,100);
+  localStorage.setItem(ANNOUNCEMENTS_KEY,JSON.stringify(announcements));
+  addHistory("发布公告","宗族公告",content);
+  renderAnnouncement();
+  renderAnnouncementHistory();
+  $("#announcementDialog").close();
+};
 render();
 renderAuthState();
+renderAnnouncement();
