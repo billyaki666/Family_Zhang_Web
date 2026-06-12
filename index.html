@@ -24,7 +24,11 @@
       <span id="zoomLabel">100%</span>
       <button id="zoomIn" class="icon-btn" title="放大">＋</button>
       <button id="resetView" class="ghost-btn">归位</button>
+      <button id="historyBtn" class="ghost-btn">修改记录</button>
       <button id="addRoot" class="primary-btn">＋ 新增族人</button>
+      <span id="userBadge" class="user-badge">游客</span>
+      <button id="authBtn" class="ghost-btn">登录 / 注册</button>
+      <button id="logoutBtn" class="ghost-btn" hidden>退出</button>
     </div>
   </header>
 
@@ -97,6 +101,45 @@
       <label>备注<textarea id="relationNote" rows="2"></textarea></label>
       <button value="default" class="primary-btn wide">确认新增</button>
     </form>
+  </dialog>
+
+  <dialog id="authDialog" class="auth-dialog">
+    <div class="drawer-head">
+      <div><span class="eyebrow">账号权限</span><h2>管理员登录</h2></div>
+      <button id="closeAuth" class="close-btn">×</button>
+    </div>
+    <div class="auth-grid">
+      <form id="loginForm">
+        <h3>登录</h3>
+        <label>账号<input id="loginUsername" autocomplete="username" required></label>
+        <label>密码<input id="loginPassword" type="password" autocomplete="current-password" required></label>
+        <p id="loginMessage" class="form-message"></p>
+        <button class="primary-btn wide" type="submit">管理员登录</button>
+      </form>
+      <form id="registerForm">
+        <h3>注册管理员</h3>
+        <label>账号<input id="registerUsername" minlength="3" required></label>
+        <label>密码<input id="registerPassword" type="password" minlength="6" required></label>
+        <label>确认密码<input id="registerConfirm" type="password" minlength="6" required></label>
+        <p id="registerMessage" class="form-message"></p>
+        <button class="ghost-btn wide" type="submit">注册账号</button>
+      </form>
+    </div>
+    <p class="auth-note">游客无需登录，可直接浏览族谱；只有管理员可以修改数据。</p>
+  </dialog>
+
+  <dialog id="historyDialog" class="history-dialog">
+    <div class="drawer-head">
+      <div><span class="eyebrow">操作审计</span><h2>族谱修改记录</h2></div>
+      <button id="closeHistory" class="close-btn">×</button>
+    </div>
+    <div class="history-table-wrap">
+      <table class="history-table">
+        <thead><tr><th>时间</th><th>操作者</th><th>操作</th><th>人物</th><th>修改内容</th></tr></thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+    </div>
+    <button id="clearHistory" class="danger-btn">清空记录</button>
   </dialog>
 
   <script src="app.js"></script>

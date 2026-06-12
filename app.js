@@ -1,5 +1,8 @@
 const ZI = ["", "启", "见", "文", "国", "荣", "仕", "万", "永", "秉", "守", "天", "良", "其", "源", "必", "昌"];
 const STORAGE_KEY = "zhang-family-tree-v4";
+const USERS_KEY = "zhang-family-users-v1";
+const SESSION_KEY = "zhang-family-session-v1";
+const HISTORY_KEY = "zhang-family-history-v1";
 const CARD_W = 64, SPOUSE_W = 48, CARD_H = 102, SPOUSE_GAP = 10, FAMILY_GAP = 18, ROW_GAP = 170, MARGIN = 95;
 
 const rawFamilies = [
@@ -75,12 +78,33 @@ function initialData() {
 
 let data;
 try { data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || initialData(); } catch { data = initialData(); }
+let users = readStorage(USERS_KEY, []);
+let historyRecords = readStorage(HISTORY_KEY, []);
+let currentUser = users.find(user => user.username === localStorage.getItem(SESSION_KEY)) || {username:"游客",role:"guest"};
 let scale=.72, panX=95, panY=50, selectedId=null, isPanning=false, spaceDown=false, start={};
 const $ = s => document.querySelector(s);
 const viewport=$("#viewport"), canvas=$("#canvas"), tree=$("#tree"), links=$("#links");
 const save = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 const person = id => data.people.find(p=>p.id===id);
 const esc = s => String(s||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function readStorage(key,fallback){try{return JSON.parse(localStorage.getItem(key))||fallback}catch{return fallback}}
+function passwordHash(value){let hash=2166136261;for(const char of value){hash^=char.charCodeAt(0);hash=Math.imul(hash,16777619)}return (hash>>>0).toString(16)}
+function canEdit(){return currentUser.role==="admin"}
+function requireAdmin(){if(canEdit())return true;$("#authDialog").showModal();return false}
+function addHistory(action,target,detail){
+  historyRecords.unshift({id:`h${Date.now()}`,time:new Date().toISOString(),user:currentUser.username,action,target,detail});
+  historyRecords=historyRecords.slice(0,500);
+  localStorage.setItem(HISTORY_KEY,JSON.stringify(historyRecords));
+}
+function renderAuthState(){
+  const admin=canEdit();
+  $("#userBadge").textContent=admin?`管理员 · ${currentUser.username}`:"游客只读";
+  $("#userBadge").classList.toggle("admin",admin);
+  $("#authBtn").hidden=admin;
+  $("#logoutBtn").hidden=!admin;
+  $("#addRoot").hidden=!admin;
+  $("#historyBtn").hidden=!admin;
+}
 
 function layout() {
   const pos = {}, unitByPerson = {}, unitsByGen = new Map(), visited = new Set();
@@ -287,14 +311,18 @@ function openPerson(id){
   const parents=data.parentLinks.filter(l=>l.child===id).map(l=>person(l.parent)?.name).filter(Boolean);
   const children=data.parentLinks.filter(l=>l.parent===id).map(l=>person(l.child)?.name).filter(Boolean);
   const spouses=data.unions.filter(u=>u.partners.includes(id)).flatMap(u=>u.partners.filter(x=>x!==id)).map(x=>person(x)?.name).filter(Boolean);
-  $("#relationBox").innerHTML=`<h3>亲属关系</h3><div class="relation-actions">
-    <button type="button" data-rel="parent">＋ 父母</button><button type="button" data-rel="spouse">＋ 配偶</button><button type="button" data-rel="child">＋ 子女</button></div>
+  $("#relationBox").innerHTML=`<h3>亲属关系</h3>${canEdit()?`<div class="relation-actions">
+    <button type="button" data-rel="parent">＋ 父母</button><button type="button" data-rel="spouse">＋ 配偶</button><button type="button" data-rel="child">＋ 子女</button></div>`:""}
     <div class="relation-list">父母：${esc(parents.join("、")||"未记录")}<br>配偶：${esc(spouses.join("、")||"未记录")}<br>子女：${esc(children.join("、")||"未记录")}</div>`;
   document.querySelectorAll("[data-rel]").forEach(b=>b.onclick=()=>openRelation(id,b.dataset.rel));
+  $("#personForm").querySelectorAll("input,select,textarea").forEach(control=>control.disabled=!canEdit());
+  $("#personForm").querySelector(".form-actions").hidden=!canEdit();
+  $("#drawer").classList.toggle("readonly",!canEdit());
   $("#drawer").classList.add("open");$("#modalBackdrop").classList.add("show");$("#drawer").setAttribute("aria-hidden","false");render();
 }
 function closeDrawer(){selectedId=null;$("#drawer").classList.remove("open");$("#modalBackdrop").classList.remove("show");$("#drawer").setAttribute("aria-hidden","true");render();}
 function openRelation(id,type){
+  if(!requireAdmin())return;
   const base=person(id), labels={parent:"新增父母",spouse:"新增配偶",child:"新增子女"};
   $("#relationTitle").textContent=labels[type];$("#relationPersonId").value=id;$("#relationType").value=type;
   $("#relationName").value="";$("#relationNote").value="";
@@ -302,19 +330,20 @@ function openRelation(id,type){
   $("#relationZi").value=type==="child"?(ZI[base.generation+1]||""):type==="parent"?(ZI[base.generation-1]||""):(base.zi||"");
   $("#relationDialog").showModal();
 }
-$("#personForm").onsubmit=e=>{e.preventDefault();const p=person($("#personId").value);if(!p)return;p.name=$("#personName").value.trim();p.gender=$("#personGender").value;p.generation=+$("#personGeneration").value;p.zi=$("#personZi").value.trim();p.showZi=$("#personShowZi").checked;p.tagText=$("#personTagText").value.trim();p.tagColor=$("#personTagColor").value;p.note=$("#personNote").value.trim();save();render();openPerson(p.id);};
+$("#personForm").onsubmit=e=>{e.preventDefault();if(!requireAdmin())return;const p=person($("#personId").value);if(!p)return;const before={...p};p.name=$("#personName").value.trim();p.gender=$("#personGender").value;p.generation=+$("#personGeneration").value;p.zi=$("#personZi").value.trim();p.showZi=$("#personShowZi").checked;p.tagText=$("#personTagText").value.trim();p.tagColor=$("#personTagColor").value;p.note=$("#personNote").value.trim();const labels={name:"姓名",gender:"性别",generation:"世代",zi:"字辈",showZi:"字辈显示",tagText:"标签",tagColor:"标签颜色",note:"备注"};const changes=Object.keys(labels).filter(key=>before[key]!==p[key]).map(key=>`${labels[key]}：${before[key]??"空"} → ${p[key]??"空"}`);save();if(changes.length)addHistory("编辑人物",p.name,changes.join("；"));render();openPerson(p.id);};
 $("#relationForm").onsubmit=e=>{
-  e.preventDefault(); if(e.submitter?.value==="cancel")return;
+  e.preventDefault(); if(e.submitter?.value==="cancel"||!requireAdmin())return;
   const base=person($("#relationPersonId").value),type=$("#relationType").value,id=`p${Date.now()}`;
   const generation=type==="parent"?base.generation-1:type==="child"?base.generation+1:base.generation;
   data.people.push({id,name:$("#relationName").value.trim(),gender:$("#relationGender").value,generation,zi:$("#relationZi").value.trim(),note:$("#relationNote").value.trim(),showZi:type!=="spouse",tagText:`第${toChinese(generation)}世`,tagColor:"#8c2f25"});
   if(type==="spouse")data.unions.push({id:`u${Date.now()}`,partners:[base.id,id]});
   else if(type==="parent")data.parentLinks.push({parent:id,child:base.id});
   else data.parentLinks.push({parent:base.id,child:id});
+  addHistory(type==="spouse"?"新增配偶":type==="parent"?"新增父母":"新增子女",$("#relationName").value.trim(),`与 ${base.name} 建立关系`);
   save();$("#relationDialog").close();render();openPerson(base.id);
 };
-$("#deletePerson").onclick=()=>{const id=$("#personId").value,p=person(id);if(!p||!confirm(`确定删除“${p.name}”及其全部关系吗？`))return;data.people=data.people.filter(x=>x.id!==id);data.unions=data.unions.filter(u=>!u.partners.includes(id));data.parentLinks=data.parentLinks.filter(l=>l.parent!==id&&l.child!==id);save();closeDrawer();};
-$("#addRoot").onclick=()=>{const id=`p${Date.now()}`;data.people.push({id,name:"新族人",gender:"male",generation:1,zi:"启",note:"",showZi:true,tagText:"第一世",tagColor:"#8c2f25"});save();render();openPerson(id);};
+$("#deletePerson").onclick=()=>{if(!requireAdmin())return;const id=$("#personId").value,p=person(id);if(!p||!confirm(`确定删除“${p.name}”及其全部关系吗？`))return;addHistory("删除人物",p.name,"删除人物及其全部亲属关系");data.people=data.people.filter(x=>x.id!==id);data.unions=data.unions.filter(u=>!u.partners.includes(id));data.parentLinks=data.parentLinks.filter(l=>l.parent!==id&&l.child!==id);save();closeDrawer();};
+$("#addRoot").onclick=()=>{if(!requireAdmin())return;const id=`p${Date.now()}`;data.people.push({id,name:"新族人",gender:"male",generation:1,zi:"启",note:"",showZi:true,tagText:"第一世",tagColor:"#8c2f25"});addHistory("新增人物","新族人","新增独立族人");save();render();openPerson(id);};
 $("#closeDrawer").onclick=closeDrawer;$("#modalBackdrop").onclick=closeDrawer;
 $("#zoomIn").onclick=()=>{scale=Math.min(1.5,scale+.1);applyTransform()};$("#zoomOut").onclick=()=>{scale=Math.max(.3,scale-.1);applyTransform()};
 $("#resetView").onclick=()=>{scale=.72;panX=95;panY=50;applyTransform()};
@@ -325,4 +354,52 @@ window.onmousemove=e=>{if(isPanning){panX=start.px+e.clientX-start.x;panY=start.
 window.onmouseup=()=>{isPanning=false;viewport.classList.remove("panning")};
 window.onkeydown=e=>{if(e.code==="Space"&&!["INPUT","TEXTAREA","SELECT"].includes(document.activeElement.tagName)){e.preventDefault();spaceDown=true;viewport.classList.add("space-ready");}};
 window.onkeyup=e=>{if(e.code==="Space"){spaceDown=false;viewport.classList.remove("space-ready")}};
+$("#authBtn").onclick=()=>{$("#loginMessage").textContent="";$("#registerMessage").textContent="";$("#authDialog").showModal()};
+$("#closeAuth").onclick=()=>$("#authDialog").close();
+$("#logoutBtn").onclick=()=>{
+  localStorage.removeItem(SESSION_KEY);
+  currentUser={username:"游客",role:"guest"};
+  closeDrawer();
+  renderAuthState();
+};
+$("#loginForm").onsubmit=e=>{
+  e.preventDefault();
+  const username=$("#loginUsername").value.trim();
+  const user=users.find(item=>item.username===username&&item.passwordHash===passwordHash($("#loginPassword").value));
+  if(!user){$("#loginMessage").textContent="账号或密码错误";return}
+  currentUser=user;
+  localStorage.setItem(SESSION_KEY,user.username);
+  $("#authDialog").close();
+  $("#loginForm").reset();
+  renderAuthState();
+};
+$("#registerForm").onsubmit=e=>{
+  e.preventDefault();
+  const username=$("#registerUsername").value.trim(),password=$("#registerPassword").value,confirmPassword=$("#registerConfirm").value;
+  if(users.some(user=>user.username===username)){$("#registerMessage").textContent="该账号已存在";return}
+  if(password!==confirmPassword){$("#registerMessage").textContent="两次输入的密码不一致";return}
+  const user={username,passwordHash:passwordHash(password),role:"admin",createdAt:new Date().toISOString()};
+  users.push(user);
+  localStorage.setItem(USERS_KEY,JSON.stringify(users));
+  currentUser=user;
+  localStorage.setItem(SESSION_KEY,user.username);
+  $("#authDialog").close();
+  $("#registerForm").reset();
+  renderAuthState();
+};
+function renderHistory(){
+  $("#historyBody").innerHTML=historyRecords.length?historyRecords.map(record=>`<tr>
+    <td>${esc(new Date(record.time).toLocaleString("zh-CN",{hour12:false}))}</td>
+    <td>${esc(record.user)}</td><td>${esc(record.action)}</td><td>${esc(record.target)}</td><td>${esc(record.detail)}</td>
+  </tr>`).join(""):`<tr><td colspan="5" class="history-empty">暂无修改记录</td></tr>`;
+}
+$("#historyBtn").onclick=()=>{if(!requireAdmin())return;renderHistory();$("#historyDialog").showModal()};
+$("#closeHistory").onclick=()=>$("#historyDialog").close();
+$("#clearHistory").onclick=()=>{
+  if(!requireAdmin()||!confirm("确定清空全部修改记录吗？"))return;
+  historyRecords=[];
+  localStorage.setItem(HISTORY_KEY,"[]");
+  renderHistory();
+};
 render();
+renderAuthState();

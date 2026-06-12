@@ -36,6 +36,8 @@ button { cursor: pointer; }
 .brand h1 { margin: 1px 0 0; font-size: 23px; letter-spacing: .2em; font-weight: 600; }
 .brand p { margin: 0; color: var(--muted); font-size: 11px; letter-spacing: .25em; }
 .toolbar { display: flex; align-items: center; gap: 9px; }
+.user-badge { padding: 6px 9px; border: 1px solid #cdbfa9; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.user-badge.admin { color: var(--red); border-color: rgba(140,47,37,.45); background: rgba(140,47,37,.06); }
 .search { display: flex; align-items: center; width: 210px; height: 38px; padding: 0 12px; background: #fffdf8; border: 1px solid #d7cbb8; }
 .search input { width: 100%; border: 0; outline: 0; background: transparent; padding-left: 7px; color: var(--ink); }
 .icon-btn, .ghost-btn, .primary-btn, .danger-btn {
@@ -115,9 +117,23 @@ input:focus, select:focus, textarea:focus { border-color: var(--red); }
 dialog { width: 380px; padding: 26px; border: 1px solid #c9baa3; background: #f7f2e8; color: var(--ink); box-shadow: 0 24px 80px rgba(25,18,12,.25); }
 dialog::backdrop { background: rgba(39,31,22,.35); }
 .wide { width: 100%; margin-top: 5px; }
+.auth-dialog { width: min(720px, calc(100vw - 40px)); }
+.auth-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+.auth-grid h3 { margin: 0 0 18px; font-size: 16px; font-weight: 500; }
+.auth-note, .form-message { color: var(--muted); font-size: 11px; }
+.form-message { min-height: 16px; color: var(--red); }
+.history-dialog { width: min(960px, calc(100vw - 40px)); }
+.history-table-wrap { max-height: 60vh; overflow: auto; margin-bottom: 18px; border: 1px solid #d5c9b5; }
+.history-table { width: 100%; border-collapse: collapse; font-size: 12px; background: rgba(255,255,255,.45); }
+.history-table th, .history-table td { padding: 10px 12px; border-bottom: 1px solid #ddd1be; text-align: left; vertical-align: top; }
+.history-table th { position: sticky; top: 0; background: #eee6d8; color: var(--muted); font-weight: 500; }
+.history-empty { padding: 30px !important; text-align: center !important; color: var(--muted); }
+.drawer.readonly input, .drawer.readonly select, .drawer.readonly textarea { color: #766d60; background: #eee8dd; }
 @media (max-width: 800px) {
   .topbar { padding: 0 12px; }
   .brand p, .toolbar .search, #zoomLabel { display: none; }
   .brand h1 { font-size: 18px; }
   .drawer { width: min(390px, 100vw); }
+  .auth-grid { grid-template-columns: 1fr; }
+  #userBadge, #historyBtn { display: none; }
 }
