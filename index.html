@@ -189,6 +189,8 @@
     </div>
     <form id="announcementForm" hidden>
       <label>公告内容<textarea id="announcementInput" rows="3" maxlength="300" placeholder="请输入公告内容"></textarea></label>
+      <label>公告图片<input id="announcementImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label>
+      <img id="announcementPreview" class="announcement-preview" alt="公告图片预览" hidden>
       <button class="primary-btn" type="submit">发布公告</button>
     </form>
     <div id="announcementHistory" class="announcement-history"></div>

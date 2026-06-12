@@ -99,7 +99,12 @@ let currentUser = users.find(user => user.username === localStorage.getItem(SESS
 let scale=.72, panX=95, panY=50, selectedId=null, isPanning=false, spaceDown=false, start={};
 const $ = s => document.querySelector(s);
 const viewport=$("#viewport"), canvas=$("#canvas"), tree=$("#tree"), links=$("#links");
-const save = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+const save = () => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+};
+const saveUsers = () => {
+  localStorage.setItem(USERS_KEY,JSON.stringify(users));
+};
 const person = id => data.people.find(p=>p.id===id);
 const esc = s => String(s||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function readStorage(key,fallback){try{return JSON.parse(localStorage.getItem(key))||fallback}catch{return fallback}}
@@ -109,7 +114,8 @@ function canPropose(){return currentUser.role==="admin"||currentUser.role==="mem
 function requireAccount(){if(canPropose())return true;$("#authDialog").showModal();return false}
 function requireAdmin(){if(canEdit())return true;return false}
 function addHistory(action,target,detail){
-  historyRecords.unshift({id:`h${Date.now()}`,time:new Date().toISOString(),user:currentUser.username,action,target,detail});
+  const record={id:`h${Date.now()}`,time:new Date().toISOString(),user:currentUser.username,action,target,detail};
+  historyRecords.unshift(record);
   historyRecords=historyRecords.slice(0,500);
   localStorage.setItem(HISTORY_KEY,JSON.stringify(historyRecords));
 }
@@ -460,7 +466,7 @@ $("#registerForm").onsubmit=e=>{
   if(password!==confirmPassword){$("#registerMessage").textContent="两次输入的密码不一致";return}
   const user={username:name,name,generation,passwordHash:passwordHash(password),role:"member",createdAt:new Date().toISOString()};
   users.push(user);
-  localStorage.setItem(USERS_KEY,JSON.stringify(users));
+  saveUsers();
   currentUser=user;
   localStorage.setItem(SESSION_KEY,user.username);
   $("#authDialog").close();
@@ -515,25 +521,45 @@ function renderAnnouncement(){
 function renderAnnouncementHistory(){
   $("#announcementHistory").innerHTML=announcements.length?announcements.map(item=>`<article class="announcement-item">
     <time>${esc(new Date(item.time).toLocaleString("zh-CN",{hour12:false}))} · ${esc(item.user)}</time>
-    <p>${esc(item.content)}</p>
+    <p>${esc(item.content)}</p>${item.image?`<img src="${item.image}" alt="公告图片">`:""}
   </article>`).join(""):`<div class="announcement-empty">暂无历史公告</div>`;
 }
 function openAnnouncementDialog(editMode){
   $("#announcementDialogTitle").textContent=editMode?"发布公告":"历史公告";
   $("#announcementForm").hidden=!editMode;
-  if(editMode)$("#announcementInput").value=announcements[0]?.content||"";
+  if(editMode){$("#announcementInput").value=announcements[0]?.content||"";$("#announcementImage").value="";$("#announcementPreview").hidden=true;$("#announcementPreview").removeAttribute("src")}
   renderAnnouncementHistory();
   $("#announcementDialog").showModal();
 }
 $("#editAnnouncementBtn").onclick=()=>{if(canEdit())openAnnouncementDialog(true)};
 $("#announcementHistoryBtn").onclick=()=>openAnnouncementDialog(false);
 $("#closeAnnouncement").onclick=()=>$("#announcementDialog").close();
-$("#announcementForm").onsubmit=e=>{
+function readImageFile(file){
+  return new Promise((resolve,reject)=>{
+    if(!file)return resolve("");
+    if(file.size>5*1024*1024)return reject(new Error("公告图片不能超过 5MB"));
+    const reader=new FileReader();
+    reader.onload=()=>resolve(reader.result);
+    reader.onerror=()=>reject(new Error("图片读取失败"));
+    reader.readAsDataURL(file);
+  });
+}
+$("#announcementImage").onchange=async()=>{
+  try{
+    const image=await readImageFile($("#announcementImage").files[0]);
+    $("#announcementPreview").src=image;
+    $("#announcementPreview").hidden=!image;
+  }catch(error){alert(error.message);$("#announcementImage").value="";$("#announcementPreview").hidden=true}
+};
+$("#announcementForm").onsubmit=async e=>{
   e.preventDefault();
   if(!canEdit())return;
   const content=$("#announcementInput").value.trim();
-  if(!content)return;
-  announcements.unshift({id:`a${Date.now()}`,content,time:new Date().toISOString(),user:currentUser.username});
+  let image="";
+  try{image=await readImageFile($("#announcementImage").files[0])}catch(error){alert(error.message);return}
+  if(!content&&!image)return;
+  const announcement={id:`a${Date.now()}`,content,time:new Date().toISOString(),user:currentUser.username,image};
+  announcements.unshift(announcement);
   announcements=announcements.slice(0,100);
   localStorage.setItem(ANNOUNCEMENTS_KEY,JSON.stringify(announcements));
   addHistory("发布公告","宗族公告",content);
@@ -541,6 +567,11 @@ $("#announcementForm").onsubmit=e=>{
   renderAnnouncementHistory();
   $("#announcementDialog").close();
 };
-render();
-renderAuthState();
-renderAnnouncement();
+function initializeApp(){
+  save();
+  saveUsers();
+  render();
+  renderAuthState();
+  renderAnnouncement();
+}
+initializeApp();
