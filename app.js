@@ -6,6 +6,16 @@ const HISTORY_KEY = "zhang-family-history-v1";
 const REQUESTS_KEY = "zhang-family-requests-v1";
 const ANNOUNCEMENTS_KEY = "zhang-family-announcements-v1";
 const CARD_W = 64, SPOUSE_W = 48, CARD_H = 84, SPOUSE_GAP = 10, FAMILY_GAP = 18, ROW_GAP = 138, MARGIN = 110;
+const TAG_COLORS = [
+  ["#8c2f25","朱砂"],
+  ["#a77b36","鎏金"],
+  ["#536b62","松绿"],
+  ["#3f6375","黛蓝"],
+  ["#72566f","烟紫"],
+  ["#72513b","檀棕"],
+  ["#5d6468","青灰"],
+  ["#2f2b27","墨黑"]
+];
 
 const rawFamilies = [
   [1,"启相公","male",["党太君"],["见富公"]],
@@ -49,7 +59,7 @@ function initialData() {
     const key = `${generation}:${name}`;
     if (byKey.has(key)) return byKey.get(key);
     const id = `p${seq++}`;
-    people.push({id,name,generation,gender,zi:ZI[generation] || "",note,showZi,tagText:"",tagColor:"#8c2f25",birthDate:"",deathDate:""});
+    people.push(createPersonRecord({id,name,generation,gender,zi:ZI[generation] || "",note,showZi}));
     byKey.set(key,id); return id;
   };
   rawFamilies.forEach(([gen,name,gender,spouses,children]) => {
@@ -79,14 +89,7 @@ function initialData() {
 }
 
 let data;
-try { data = JSON.parse(localStorage.getItem(STORAGE_KEY)) || initialData(); } catch { data = initialData(); }
-data.people.forEach(p=>{
-  if(p.tagText===`第${toChinese(p.generation)}世`)p.tagText="";
-  p.birthDate=p.birthDate||"";
-  p.deathDate=p.deathDate||"";
-  p.deathUnknown=Boolean(p.deathUnknown);
-  p.tagColor=safeColor(p.tagColor);
-});
+try { data = normalizeDataSet(JSON.parse(localStorage.getItem(STORAGE_KEY)) || initialData()); } catch { data = normalizeDataSet(initialData()); }
 let users = readStorage(USERS_KEY, [])
   .filter(user=>user.username!=="admin123")
   .map(user=>({...user,role:user.role==="admin"?"member":user.role}));
@@ -96,7 +99,7 @@ let historyRecords = readStorage(HISTORY_KEY, []);
 let changeRequests = readStorage(REQUESTS_KEY, []);
 let announcements = readStorage(ANNOUNCEMENTS_KEY, []);
 let currentUser = users.find(user => user.username === localStorage.getItem(SESSION_KEY)) || {username:"游客",role:"guest"};
-let scale=.72, panX=95, panY=50, selectedId=null, isPanning=false, spaceDown=false, start={};
+let scale=.72, panX=95, panY=50, selectedId=null, isPanning=false, spaceDown=false, start={}, personFormSnapshot="";
 const $ = s => document.querySelector(s);
 const viewport=$("#viewport"), canvas=$("#canvas"), tree=$("#tree"), links=$("#links");
 const save = () => {
@@ -108,11 +111,219 @@ const saveUsers = () => {
 const person = id => data.people.find(p=>p.id===id);
 const esc = s => String(s||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function readStorage(key,fallback){try{return JSON.parse(localStorage.getItem(key))||fallback}catch{return fallback}}
+function createPersonRecord(values={}){
+  const generation=Number(values.generation)||1;
+  return {
+    id: values.id || `p${Date.now()}${Math.random().toString(16).slice(2,5)}`,
+    name: values.name || "新族人",
+    generation,
+    gender: values.gender || "male",
+    zi: values.zi ?? (ZI[generation] || ""),
+    note: values.note || "",
+    showZi: values.showZi !== false,
+    tagMode: values.tagMode || "none",
+    tagText: values.tagText || "",
+    tagItems: Array.isArray(values.tagItems) ? values.tagItems : [],
+    tagColor: safeColor(values.tagColor),
+    birthDate: values.birthDate || "",
+    birthCalendar: values.birthCalendar || "",
+    birthSolar: values.birthSolar || "",
+    birthLunar: values.birthLunar || "",
+    deathDate: values.deathDate || "",
+    deathCalendar: values.deathCalendar || "",
+    deathSolar: values.deathSolar || "",
+    deathLunar: values.deathLunar || "",
+    deathUnknown: Boolean(values.deathUnknown)
+  };
+}
+function splitTagText(value){
+  return String(value||"").split(/[、，,\n]/).map(item=>item.trim()).filter(Boolean).slice(0,3);
+}
+function normalizePerson(p){
+  if(p.tagText===`第${toChinese(p.generation)}世`)p.tagText="";
+  const tagColor=safeColor(p.tagColor);
+  const tagItems=Array.isArray(p.tagItems)&&p.tagItems.length
+    ? p.tagItems.map(item=>({text:String(item.text||"").trim(),color:safeColor(item.color||tagColor)})).filter(item=>item.text)
+    : splitTagText(p.tagText).map(text=>({text,color:tagColor}));
+  const tagMode=tagItems.length>1?"multiple":tagItems.length===1?"single":"none";
+  Object.assign(p, createPersonRecord({...p,tagMode,tagItems,tagColor}));
+  if(p.tagMode==="none"){p.tagText="";p.tagItems=[]}
+  else if(p.tagMode==="single"){p.tagItems=p.tagItems.slice(0,1);p.tagText=p.tagItems[0]?.text||p.tagText||""}
+  else {p.tagItems=(p.tagItems.length?p.tagItems:splitTagText(p.tagText).map(text=>({text,color:p.tagColor}))).slice(0,3);p.tagText=p.tagItems.map(item=>item.text).join("、")}
+  return p;
+}
+function normalizeDataSet(source){
+  const input=source?.data&&Array.isArray(source.data.people)?source.data:source;
+  if(!input||!Array.isArray(input.people)||!Array.isArray(input.unions)||!Array.isArray(input.parentLinks)){
+    throw new Error("数据格式不正确");
+  }
+  return {
+    people: input.people.map(item=>normalizePerson({...item})),
+    unions: input.unions.map(item=>({id:String(item.id||`u${Date.now()}`),partners:[...(item.partners||[])].map(String).slice(0,2)})).filter(item=>item.partners.length===2),
+    parentLinks: input.parentLinks.map(item=>({parent:String(item.parent||""),child:String(item.child||"")})).filter(item=>item.parent&&item.child)
+  };
+}
 function passwordHash(value){let hash=2166136261;for(const char of value){hash^=char.charCodeAt(0);hash=Math.imul(hash,16777619)}return (hash>>>0).toString(16)}
 function canEdit(){return currentUser.role==="admin"}
 function canPropose(){return currentUser.role==="admin"||currentUser.role==="member"}
 function requireAccount(){if(canPropose())return true;$("#authDialog").showModal();return false}
 function requireAdmin(){if(canEdit())return true;return false}
+function showMessage(options={}){
+  const dialog=$("#messageDialog");
+  const confirmButton=$("#messageConfirm");
+  const cancelButton=$("#messageCancel");
+  const closeButton=$("#messageClose");
+  const isAlert=options.mode!=="confirm";
+  $("#messageEyebrow").textContent=options.eyebrow||"温馨提示";
+  $("#messageTitle").textContent=options.title||"提示";
+  $("#messageText").textContent=options.message||"";
+  confirmButton.textContent=options.confirmText||"确定";
+  cancelButton.textContent=options.cancelText||"取消";
+  cancelButton.classList.toggle("messageCancelHidden",isAlert);
+  dialog.classList.toggle("alert",isAlert);
+  return new Promise(resolve=>{
+    let settled=false;
+    const finish=value=>{
+      if(settled)return;
+      settled=true;
+      confirmButton.onclick=null;
+      cancelButton.onclick=null;
+      closeButton.onclick=null;
+      dialog.oncancel=null;
+      dialog.onclose=null;
+      if(dialog.open)dialog.close();
+      resolve(value);
+    };
+    confirmButton.onclick=()=>finish(true);
+    cancelButton.onclick=()=>finish(false);
+    closeButton.onclick=()=>finish(isAlert);
+    dialog.oncancel=event=>{event.preventDefault();finish(isAlert)};
+    dialog.onclose=()=>finish(isAlert);
+    dialog.showModal();
+    confirmButton.focus();
+  });
+}
+function showAlert(message,title="提示"){return showMessage({mode:"alert",title,message,confirmText:"知道了"})}
+function showConfirm(message,title="请确认"){return showMessage({mode:"confirm",title,message,confirmText:"确定",cancelText:"取消"})}
+const LUNAR_INFO=[
+  0x04bd8,0x04ae0,0x0a570,0x054d5,0x0d260,0x0d950,0x16554,0x056a0,0x09ad0,0x055d2,
+  0x04ae0,0x0a5b6,0x0a4d0,0x0d250,0x1d255,0x0b540,0x0d6a0,0x0ada2,0x095b0,0x14977,
+  0x04970,0x0a4b0,0x0b4b5,0x06a50,0x06d40,0x1ab54,0x02b60,0x09570,0x052f2,0x04970,
+  0x06566,0x0d4a0,0x0ea50,0x06e95,0x05ad0,0x02b60,0x186e3,0x092e0,0x1c8d7,0x0c950,
+  0x0d4a0,0x1d8a6,0x0b550,0x056a0,0x1a5b4,0x025d0,0x092d0,0x0d2b2,0x0a950,0x0b557,
+  0x06ca0,0x0b550,0x15355,0x04da0,0x0a5d0,0x14573,0x052d0,0x0a9a8,0x0e950,0x06aa0,
+  0x0aea6,0x0ab50,0x04b60,0x0aae4,0x0a570,0x05260,0x0f263,0x0d950,0x05b57,0x056a0,
+  0x096d0,0x04dd5,0x04ad0,0x0a4d0,0x0d4d4,0x0d250,0x0d558,0x0b540,0x0b6a0,0x195a6,
+  0x095b0,0x049b0,0x0a974,0x0a4b0,0x0b27a,0x06a50,0x06d40,0x0af46,0x0ab60,0x09570,
+  0x04af5,0x04970,0x064b0,0x074a3,0x0ea50,0x06b58,0x055c0,0x0ab60,0x096d5,0x092e0,
+  0x0c960,0x0d954,0x0d4a0,0x0da50,0x07552,0x056a0,0x0abb7,0x025d0,0x092d0,0x0cab5,
+  0x0a950,0x0b4a0,0x0baa4,0x0ad50,0x055d9,0x04ba0,0x0a5b0,0x15176,0x052b0,0x0a930,
+  0x07954,0x06aa0,0x0ad50,0x05b52,0x04b60,0x0a6e6,0x0a4e0,0x0d260,0x0ea65,0x0d530,
+  0x05aa0,0x076a3,0x096d0,0x04afb,0x04ad0,0x0a4d0,0x1d0b6,0x0d250,0x0d520,0x0dd45,
+  0x0b5a0,0x056d0,0x055b2,0x049b0,0x0a577,0x0a4b0,0x0aa50,0x1b255,0x06d20,0x0ada0
+];
+const LUNAR_MONTHS={正:1,一:1,二:2,三:3,四:4,五:5,六:6,七:7,八:8,九:9,十:10,冬:11,腊:12};
+function pad2(n){return String(n).padStart(2,"0")}
+function validSolar(year,month,day){
+  const date=new Date(year,month-1,day);
+  return date.getFullYear()===year&&date.getMonth()===month-1&&date.getDate()===day;
+}
+function leapMonth(year){return LUNAR_INFO[year-1900]&0xf}
+function leapDays(year){return leapMonth(year)?((LUNAR_INFO[year-1900]&0x10000)?30:29):0}
+function monthDays(year,month){return (LUNAR_INFO[year-1900]&(0x10000>>month))?30:29}
+function lunarYearDays(year){
+  let sum=348;
+  for(let bit=0x8000;bit>0x8;bit>>=1)sum+=(LUNAR_INFO[year-1900]&bit)?1:0;
+  return sum+leapDays(year);
+}
+function lunarToSolar(year,month,day,isLeap=false){
+  if(year<1900||year>=1900+LUNAR_INFO.length)return null;
+  const leap=leapMonth(year);
+  if(month<1||month>12||day<1)return null;
+  const maxDay=isLeap?leapDays(year):monthDays(year,month);
+  if(isLeap&&leap!==month)return null;
+  if(day>maxDay)return null;
+  let offset=0;
+  for(let y=1900;y<year;y++)offset+=lunarYearDays(y);
+  for(let m=1;m<month;m++){
+    offset+=monthDays(year,m);
+    if(leap===m)offset+=leapDays(year);
+  }
+  if(isLeap)offset+=monthDays(year,month);
+  offset+=day-1;
+  const date=new Date(1900,0,31);
+  date.setDate(date.getDate()+offset);
+  return `${date.getFullYear()}-${pad2(date.getMonth()+1)}-${pad2(date.getDate())}`;
+}
+function parseChineseNumber(text){
+  if(/^\d+$/.test(text))return Number(text);
+  const digit={零:0,〇:0,一:1,二:2,两:2,三:3,四:4,五:5,六:6,七:7,八:8,九:9};
+  const clean=String(text||"").replace(/^初/,"").replace(/^廿/,"二十").replace(/^卅/,"三十");
+  if(clean==="十")return 10;
+  if(clean==="二十")return 20;
+  if(clean==="三十")return 30;
+  if(clean.startsWith("十"))return 10+(digit[clean[1]]||0);
+  if(clean.includes("十")){
+    const [ten,one]=clean.split("十");
+    return (digit[ten]||0)*10+(one?digit[one]||0:0);
+  }
+  return digit[clean]||0;
+}
+function parseLunarInput(value){
+  const clean=String(value||"").replace(/\s+/g,"");
+  if(!clean.includes("农历"))return null;
+  const yearMatch=clean.match(/(\d{4})/);
+  if(!yearMatch)return {raw:value,calendar:"lunar",precision:"text",solar:"",lunar:value,error:"农历日期缺少年份"};
+  const year=Number(yearMatch[1]);
+  const tail=clean.slice(yearMatch.index+4);
+  const monthMatch=tail.match(/(闰)?(\d{1,2}|正|一|二|三|四|五|六|七|八|九|十|冬|腊)月?/);
+  if(!monthMatch)return {raw:value,calendar:"lunar",precision:"text",solar:"",lunar:value,error:"农历日期缺少月份"};
+  const monthToken=monthMatch[2];
+  const month=/^\d+$/.test(monthToken)?Number(monthToken):LUNAR_MONTHS[monthToken];
+  const dayTail=tail.slice(monthMatch.index+monthMatch[0].length).replace(/^[-/.年月]+/,"").replace(/[日号]$/,"");
+  const dayToken=(dayTail.match(/^\d{1,2}/)||dayTail.match(/^(初[一二三四五六七八九十]|十[一二三四五六七八九]?|二十|廿[一二三四五六七八九]?|三十|卅)$/)||[])[0];
+  const day=parseChineseNumber(dayToken||"");
+  if(!day)return {raw:value,calendar:"lunar",precision:"text",solar:"",lunar:value,error:"农历日期缺少日期"};
+  const solar=lunarToSolar(year,month,day,Boolean(monthMatch[1]));
+  return solar
+    ? {raw:value,calendar:"lunar",precision:"day",solar,lunar:value}
+    : {raw:value,calendar:"lunar",precision:"text",solar:"",lunar:value,error:"农历日期超出范围或不存在"};
+}
+function parseFlexibleDate(value){
+  const raw=String(value||"").trim();
+  if(!raw)return {raw:"",calendar:"",precision:"",solar:"",lunar:""};
+  const lunar=parseLunarInput(raw);
+  if(lunar)return lunar;
+  let match=raw.match(/^(\d{4})$/) || raw.match(/^(\d{4})年$/);
+  if(match)return {raw,calendar:"solar",precision:"year",solar:match[1],lunar:""};
+  match=raw.match(/^(\d{4})[-/.年](\d{1,2})(?:月)?$/);
+  if(match){
+    const year=+match[1],month=+match[2];
+    return month>=1&&month<=12?{raw,calendar:"solar",precision:"month",solar:`${year}-${pad2(month)}`,lunar:""}:{raw,calendar:"unknown",precision:"text",solar:"",lunar:"",error:"月份不正确"};
+  }
+  match=raw.match(/^(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})(?:日)?$/);
+  if(match){
+    const year=+match[1],month=+match[2],day=+match[3];
+    return validSolar(year,month,day)?{raw,calendar:"solar",precision:"day",solar:`${year}-${pad2(month)}-${pad2(day)}`,lunar:""}:{raw,calendar:"unknown",precision:"text",solar:"",lunar:"",error:"阳历日期不存在"};
+  }
+  return {raw,calendar:"unknown",precision:"text",solar:"",lunar:"",error:"未识别日期格式"};
+}
+function dateHint(info){
+  if(!info.raw)return "";
+  if(info.error)return info.error;
+  if(info.calendar==="lunar")return `农历已换算：阳历 ${info.solar}`;
+  if(info.precision==="year")return `识别为年份：${info.solar}`;
+  if(info.precision==="month")return `识别为年月：${info.solar}`;
+  return `识别为阳历：${info.solar}`;
+}
+function formatStoredDate(p,type){
+  const raw=p[`${type}Date`]||"";
+  const solar=p[`${type}Solar`]||"";
+  const lunar=p[`${type}Lunar`]||"";
+  if(type==="death"&&p.deathUnknown)return "不详";
+  if(!raw)return "未填写";
+  return lunar&&solar?`${lunar}（阳历 ${solar}）`:raw;
+}
 function addHistory(action,target,detail){
   const record={id:`h${Date.now()}`,time:new Date().toISOString(),user:currentUser.username,action,target,detail};
   historyRecords.unshift(record);
@@ -136,6 +347,7 @@ function renderAuthState(){
   $("#historyBtn").hidden=!(admin||member);
   $("#historyBtn").textContent=admin?"审核与记录":"我的申请";
   $("#editAnnouncementBtn").hidden=!admin;
+  $("#dataPortBtn").hidden=!admin;
 }
 
 function layout() {
@@ -297,8 +509,8 @@ function render() {
     const q=pos[p.id], spouse=isSpouse(p.id), deceased=Boolean(p.deathDate||p.deathUnknown);
     return `<article class="person ${p.gender} ${spouse?"spouse":""} ${deceased?"deceased":""} ${p.id===selectedId?"selected":""}" data-id="${p.id}" style="left:${q.x}px;top:${q.y}px">
       <div class="person-top"><span class="person-name">${esc(p.name)}</span>${p.showZi!==false?`<span class="zi-badge">${esc(p.zi||"未")}</span>`:""}</div>
-      ${p.tagText?`<div class="person-tag" style="background:${safeColor(p.tagColor)}">${esc(p.tagText)}</div>`:""}
-      <div class="person-tooltip"><div><b>出生：</b>${esc(p.birthDate||"未填写")}</div><div><b>死亡：</b>${esc(p.deathUnknown?"不详":p.deathDate||"未填写")}</div><div><b>生平：</b>${esc(p.note||"暂无备注")}</div></div>
+      ${renderPersonTags(p)}
+      <div class="person-tooltip"><div><b>出生：</b>${esc(formatStoredDate(p,"birth"))}</div><div><b>死亡：</b>${esc(formatStoredDate(p,"death"))}</div><div><b>生平：</b>${esc(p.note||"暂无备注")}</div></div>
     </article>`;
   }).join("");
   let svg="";
@@ -335,23 +547,162 @@ function render() {
   renderRail(pos); applyTransform();
   document.querySelectorAll(".person").forEach(el=>el.onclick=()=>openPerson(el.dataset.id));
 }
+function renderPersonTags(p){
+  if(p.tagMode==="none")return "";
+  const items=(p.tagItems?.length?p.tagItems:[{text:p.tagText,color:p.tagColor}]).filter(item=>item?.text).slice(0,3);
+  if(!items.length)return "";
+  return `<div class="person-tags">${items.map(item=>`<span class="person-tag" style="background:${safeColor(item.color||p.tagColor)}">${esc(item.text)}</span>`).join("")}</div>`;
+}
 function renderRail(pos) {
   const gens=[...new Set(data.people.map(p=>p.generation))].sort((a,b)=>a-b);
   $("#generationRail").innerHTML=gens.map(g=>`<div class="gen-tag" style="top:${((g-1)*ROW_GAP+35)*scale+panY}px"><span class="gen-order">第${toChinese(g)}世</span><span class="gen-zi">[<b>${ZI[g]||"未"}</b>]</span></div>`).join("");
 }
 function toChinese(n){const a=["零","一","二","三","四","五","六","七","八","九"]; return n<10?a[n]:n===10?"十":n<20?"十"+a[n%10]:"二十";}
 function safeColor(value){return /^#[0-9a-f]{6}$/i.test(value||"")?value:"#8c2f25";}
-function setColorPalette(color){
-  const safe=safeColor(color);
-  $("#personTagColor").value=safe;
-  document.querySelectorAll("#tagColorPalette [data-color]").forEach(button=>button.classList.toggle("selected",button.dataset.color===safe));
-}
 function applyTransform(){canvas.style.transform=`translate(${panX}px,${panY}px) scale(${scale})`;$("#zoomLabel").textContent=Math.round(scale*100)+"%"; const {pos}=layout();renderRail(pos);}
-function openPerson(id){
+function tagTextForForm(p){
+  return p.tagItems?.length?p.tagItems:splitTagText(p.tagText).map(text=>({text,color:p.tagColor}));
+}
+function collectTagData(){
+  const tagItems=[...document.querySelectorAll(".tag-text")].map(input=>{
+    const index=input.dataset.tagIndex;
+    const text=input.value.trim();
+    const color=safeColor(document.querySelector(`.tag-color[data-tag-index="${index}"]`)?.value);
+    return text?{text,color}:null;
+  }).filter(Boolean).slice(0,3);
+  const tagMode=tagItems.length>1?"multiple":tagItems.length===1?"single":"none";
+  const tagColor=tagItems[0]?.color||"#8c2f25";
+  return {tagMode,tagText:tagItems.map(item=>item.text).join("、"),tagItems,tagColor};
+}
+function updateDateHints(){
+  const birth=parseFlexibleDate($("#personBirthDate").value);
+  const deathUnknown=$("#personDeathUnknown").checked;
+  const death=deathUnknown?{raw:""}:parseFlexibleDate($("#personDeathDate").value);
+  $("#birthDateHint").textContent=dateHint(birth);
+  $("#birthDateHint").classList.toggle("error",Boolean(birth.error));
+  $("#deathDateHint").textContent=deathUnknown?"死亡时间记录为：不详":dateHint(death);
+  $("#deathDateHint").classList.toggle("error",Boolean(death.error));
+}
+function formValuesForSnapshot(){
+  return {
+    id:$("#personId").value,
+    name:$("#personName").value,
+    gender:$("#personGender").value,
+    generation:$("#personGeneration").value,
+    zi:$("#personZi").value,
+    showZi:$("#personShowZi").checked,
+    tagItems:[...document.querySelectorAll(".tag-text")].map(input=>{
+      const index=input.dataset.tagIndex;
+      return {text:input.value,color:document.querySelector(`.tag-color[data-tag-index="${index}"]`)?.value};
+    }),
+    birthDate:$("#personBirthDate").value,
+    deathDate:$("#personDeathDate").value,
+    deathUnknown:$("#personDeathUnknown").checked,
+    note:$("#personNote").value
+  };
+}
+function markPersonFormClean(){personFormSnapshot=JSON.stringify(formValuesForSnapshot())}
+function personFormDirty(){
+  return canPropose()&&selectedId&&$("#drawer").classList.contains("open")&&personFormSnapshot&&JSON.stringify(formValuesForSnapshot())!==personFormSnapshot;
+}
+function summarizeChanges(before,proposed,labels){
+  return Object.keys(labels).filter(key=>JSON.stringify(before[key]??"")!==JSON.stringify(proposed[key]??""))
+    .map(key=>`${labels[key]}：${formatChangeValue(before[key])} → ${formatChangeValue(proposed[key])}`);
+}
+function formatChangeValue(value){
+  if(Array.isArray(value))return value.map(item=>item.text||item).join("、")||"空";
+  if(typeof value==="boolean")return value?"是":"否";
+  return value||"空";
+}
+function buildPersonProposal(p){
+  const birthInfo=parseFlexibleDate($("#personBirthDate").value);
+  const deathUnknown=$("#personDeathUnknown").checked;
+  const deathInfo=deathUnknown?{raw:"",calendar:"",solar:"",lunar:""}:parseFlexibleDate($("#personDeathDate").value);
+  const tagData=collectTagData();
+  return {
+    ...p,
+    name:$("#personName").value.trim(),
+    gender:$("#personGender").value,
+    generation:+$("#personGeneration").value,
+    zi:$("#personZi").value.trim(),
+    showZi:$("#personShowZi").checked,
+    ...tagData,
+    birthDate:birthInfo.raw,
+    birthCalendar:birthInfo.calendar,
+    birthSolar:birthInfo.solar,
+    birthLunar:birthInfo.lunar,
+    deathDate:deathInfo.raw,
+    deathCalendar:deathInfo.calendar,
+    deathSolar:deathInfo.solar,
+    deathLunar:deathInfo.lunar,
+    deathUnknown,
+    note:$("#personNote").value.trim()
+  };
+}
+async function submitPersonForm(options={}){
+  const {silent=false}=options;
+  if(!requireAccount())return false;
+  const form=$("#personForm");
+  if(!form.reportValidity())return false;
+  const p=person($("#personId").value);
+  if(!p)return false;
+  const before={...p,tagItems:[...(p.tagItems||[])]};
+  const proposed=buildPersonProposal(p);
+  const labels={name:"姓名",gender:"性别",generation:"世代",zi:"字辈",showZi:"字辈显示",tagMode:"标签模式",tagText:"标签",tagItems:"标签内容",tagColor:"标签颜色",birthDate:"出生时间",birthSolar:"出生阳历",birthLunar:"出生农历",deathDate:"死亡时间",deathSolar:"死亡阳历",deathLunar:"死亡农历",deathUnknown:"死亡日期不详",note:"备注"};
+  const changes=summarizeChanges(before,proposed,labels);
+  if(!changes.length){markPersonFormClean();return true}
+  if(canEdit()){
+    Object.assign(p,proposed);
+    normalizePerson(p);
+    save();
+    addHistory("编辑人物",p.name,changes.join("；"));
+    markPersonFormClean();
+    if(!silent){render();await openPerson(p.id)}
+    return true;
+  }
+  addRequest("editPerson",p.name,p.id,normalizePerson({...proposed}),changes.join("；"));
+  markPersonFormClean();
+  if(!silent){await closeDrawer(true);await showAlert("修改申请已提交，管理员审核通过后生效。")}
+  return true;
+}
+async function confirmUnsavedPersonForm(){
+  if(!personFormDirty())return true;
+  if(await showConfirm("人物档案有未保存修改，是否保存？\n确定：保存修改\n取消：放弃修改","未保存修改")){
+    return await submitPersonForm({silent:true});
+  }
+  return true;
+}
+function setupTagEditor(){
+  document.querySelectorAll(".tag-color").forEach(select=>{
+    select.innerHTML=TAG_COLORS.map(([value,label])=>`<option value="${value}">${label}</option>`).join("");
+    select.onchange=()=>paintTagColorSelect(select);
+    paintTagColorSelect(select);
+  });
+}
+function paintTagColorSelect(select){
+  const color=safeColor(select.value);
+  select.value=color;
+  select.style.background=color;
+}
+function setTagEditorItems(items=[]){
+  document.querySelectorAll(".tag-text").forEach(input=>{
+    const index=Number(input.dataset.tagIndex);
+    input.value=items[index]?.text||"";
+    input.disabled=!canPropose();
+  });
+  document.querySelectorAll(".tag-color").forEach(select=>{
+    const index=Number(select.dataset.tagIndex);
+    select.value=safeColor(items[index]?.color||"#8c2f25");
+    select.disabled=!canPropose();
+    paintTagColorSelect(select);
+  });
+}
+async function openPerson(id){
+  if(id!==selectedId&&!(await confirmUnsavedPersonForm()))return;
   selectedId=id; const p=person(id); if(!p)return;
   $("#personId").value=p.id;$("#personName").value=p.name;$("#personGender").value=p.gender;
   $("#personGeneration").value=p.generation;$("#personZi").value=p.zi||"";$("#personShowZi").checked=p.showZi!==false;
-  $("#personTagText").value=p.tagText||"";setColorPalette(p.tagColor);$("#personBirthDate").value=p.birthDate||"";$("#personDeathDate").value=p.deathDate||"";$("#personDeathUnknown").checked=Boolean(p.deathUnknown);$("#personDeathDate").disabled=Boolean(p.deathUnknown)||!canPropose();$("#personNote").value=p.note||"";
+  setTagEditorItems(tagTextForForm(p));$("#personBirthDate").value=p.birthDate||"";$("#personDeathDate").value=p.deathDate||"";$("#personDeathUnknown").checked=Boolean(p.deathUnknown);$("#personDeathDate").disabled=Boolean(p.deathUnknown)||!canPropose();$("#personNote").value=p.note||"";
   $("#drawerTitle").textContent=p.name;
   const parents=data.parentLinks.filter(l=>l.child===id).map(l=>person(l.parent)?.name).filter(Boolean);
   const children=data.parentLinks.filter(l=>l.parent===id).map(l=>person(l.child)?.name).filter(Boolean);
@@ -362,14 +713,15 @@ function openPerson(id){
   document.querySelectorAll("[data-rel]").forEach(b=>b.onclick=()=>openRelation(id,b.dataset.rel));
   $("#personForm").querySelectorAll("input,select,textarea").forEach(control=>control.disabled=!canPropose());
   $("#personDeathDate").disabled=!canPropose()||$("#personDeathUnknown").checked;
-  $("#tagColorPalette").querySelectorAll("button").forEach(button=>button.disabled=!canPropose());
+  setTagEditorItems(tagTextForForm(p));
+  updateDateHints();
   $("#personForm").querySelector(".form-actions").hidden=!canPropose();
   $("#deletePerson").textContent=canEdit()?"删除人物":"申请删除";
   $("#personForm button[type='submit']").textContent=canEdit()?"保存修改":"提交修改申请";
   $("#drawer").classList.toggle("readonly",!canPropose());
-  $("#drawer").classList.add("open");$("#modalBackdrop").classList.add("show");$("#drawer").setAttribute("aria-hidden","false");render();
+  $("#drawer").classList.add("open");$("#modalBackdrop").classList.add("show");$("#drawer").setAttribute("aria-hidden","false");markPersonFormClean();render();
 }
-function closeDrawer(){selectedId=null;$("#drawer").classList.remove("open");$("#modalBackdrop").classList.remove("show");$("#drawer").setAttribute("aria-hidden","true");render();}
+async function closeDrawer(force=false){if(!force&&!(await confirmUnsavedPersonForm()))return false;selectedId=null;personFormSnapshot="";$("#drawer").classList.remove("open");$("#modalBackdrop").classList.remove("show");$("#drawer").setAttribute("aria-hidden","true");render();return true;}
 function openRelation(id,type){
   if(!requireAccount())return;
   const base=person(id), labels={parent:"新增父母",spouse:"新增配偶",child:"新增子女"};
@@ -412,23 +764,25 @@ function applyChangeRequest(request){
   save();
   return true;
 }
-$("#personForm").onsubmit=e=>{e.preventDefault();if(!requireAccount())return;const p=person($("#personId").value);if(!p)return;const before={...p};const deathUnknown=$("#personDeathUnknown").checked;const proposed={...p,name:$("#personName").value.trim(),gender:$("#personGender").value,generation:+$("#personGeneration").value,zi:$("#personZi").value.trim(),showZi:$("#personShowZi").checked,tagText:$("#personTagText").value.trim(),tagColor:$("#personTagColor").value,birthDate:$("#personBirthDate").value,deathDate:deathUnknown?"":$("#personDeathDate").value,deathUnknown,note:$("#personNote").value.trim()};const labels={name:"姓名",gender:"性别",generation:"世代",zi:"字辈",showZi:"字辈显示",tagText:"标签",tagColor:"标签颜色",birthDate:"出生时间",deathDate:"死亡时间",deathUnknown:"死亡日期不详",note:"备注"};const changes=Object.keys(labels).filter(key=>before[key]!==proposed[key]).map(key=>`${labels[key]}：${before[key]||"空"} → ${proposed[key]||"空"}`);if(!changes.length)return;if(canEdit()){Object.assign(p,proposed);save();addHistory("编辑人物",p.name,changes.join("；"));render();openPerson(p.id)}else{addRequest("editPerson",p.name,p.id,proposed,changes.join("；"));closeDrawer();alert("修改申请已提交，管理员审核通过后生效。")}};
-$("#relationForm").onsubmit=e=>{
+$("#personForm").onsubmit=async e=>{e.preventDefault();await submitPersonForm()};
+$("#relationForm").onsubmit=async e=>{
   e.preventDefault(); if(e.submitter?.value==="cancel"||!requireAccount())return;
   const base=person($("#relationPersonId").value),type=$("#relationType").value,id=`p${Date.now()}`;
   const generation=type==="parent"?base.generation-1:type==="child"?base.generation+1:base.generation;
-  const newPerson={id,name:$("#relationName").value.trim(),gender:$("#relationGender").value,generation,zi:$("#relationZi").value.trim(),note:$("#relationNote").value.trim(),showZi:type!=="spouse",tagText:"",tagColor:"#8c2f25",birthDate:"",deathDate:"",deathUnknown:false};
-  if(canEdit()){applyRelationChange({baseId:base.id,type,newPerson});addHistory(type==="spouse"?"新增配偶":type==="parent"?"新增父母":"新增子女",newPerson.name,`与 ${base.name} 建立关系`);save();$("#relationDialog").close();render();openPerson(base.id)}
-  else{addRequest("addRelation",newPerson.name,base.id,{baseId:base.id,type,newPerson},`申请与 ${base.name} 建立${type==="spouse"?"配偶":type==="parent"?"父母":"子女"}关系`);$("#relationDialog").close();closeDrawer();alert("亲属关系申请已提交，管理员审核通过后生效。")}
+  const newPerson=createPersonRecord({id,name:$("#relationName").value.trim(),gender:$("#relationGender").value,generation,zi:$("#relationZi").value.trim(),note:$("#relationNote").value.trim(),showZi:type!=="spouse"});
+  if(canEdit()){applyRelationChange({baseId:base.id,type,newPerson});addHistory(type==="spouse"?"新增配偶":type==="parent"?"新增父母":"新增子女",newPerson.name,`与 ${base.name} 建立关系`);save();$("#relationDialog").close();render();await openPerson(base.id)}
+  else{addRequest("addRelation",newPerson.name,base.id,{baseId:base.id,type,newPerson},`申请与 ${base.name} 建立${type==="spouse"?"配偶":type==="parent"?"父母":"子女"}关系`);$("#relationDialog").close();await closeDrawer(true);await showAlert("亲属关系申请已提交，管理员审核通过后生效。")}
 };
-$("#deletePerson").onclick=()=>{if(!requireAccount())return;const id=$("#personId").value,p=person(id);if(!p||!confirm(canEdit()?`确定删除“${p.name}”及其全部关系吗？`:`确定提交删除“${p.name}”的申请吗？`))return;if(canEdit()){applyDeletePerson(id);addHistory("删除人物",p.name,"删除人物及其全部亲属关系");save();closeDrawer()}else{addRequest("deletePerson",p.name,id,{},"申请删除人物及其全部亲属关系");closeDrawer();alert("删除申请已提交，管理员审核通过后生效。")}};
-$("#addRoot").onclick=()=>{if(!requireAccount())return;const newPerson={id:`p${Date.now()}`,name:"新族人",gender:"male",generation:1,zi:"启",note:"",showZi:true,tagText:"",tagColor:"#8c2f25",birthDate:"",deathDate:"",deathUnknown:false};if(canEdit()){data.people.push(newPerson);addHistory("新增人物","新族人","新增独立族人");save();render();openPerson(newPerson.id)}else{addRequest("addRoot","新族人","",newPerson,"申请新增独立族人");alert("新增人物申请已提交，管理员审核通过后生效。")}};
-$("#closeDrawer").onclick=closeDrawer;$("#modalBackdrop").onclick=closeDrawer;
-document.querySelectorAll("#tagColorPalette [data-color]").forEach(button=>button.onclick=()=>setColorPalette(button.dataset.color));
+$("#deletePerson").onclick=async()=>{if(!requireAccount())return;const id=$("#personId").value,p=person(id);if(!p||!(await showConfirm(canEdit()?`确定删除“${p.name}”及其全部关系吗？`:`确定提交删除“${p.name}”的申请吗？`,"删除人物")))return;if(canEdit()){applyDeletePerson(id);addHistory("删除人物",p.name,"删除人物及其全部亲属关系");save();await closeDrawer(true)}else{addRequest("deletePerson",p.name,id,{},"申请删除人物及其全部亲属关系");await closeDrawer(true);await showAlert("删除申请已提交，管理员审核通过后生效。")}};
+$("#addRoot").onclick=async()=>{if(!requireAccount())return;const newPerson=createPersonRecord({id:`p${Date.now()}`,name:"新族人",gender:"male",generation:1,zi:"启",showZi:true});if(canEdit()){data.people.push(newPerson);addHistory("新增人物","新族人","新增独立族人");save();render();await openPerson(newPerson.id)}else{addRequest("addRoot","新族人","",newPerson,"申请新增独立族人");await showAlert("新增人物申请已提交，管理员审核通过后生效。")}};
+$("#closeDrawer").onclick=()=>closeDrawer();$("#modalBackdrop").onclick=()=>closeDrawer();
 $("#personDeathUnknown").onchange=()=>{
   $("#personDeathDate").disabled=$("#personDeathUnknown").checked||!canPropose();
   if($("#personDeathUnknown").checked)$("#personDeathDate").value="";
+  updateDateHints();
 };
+$("#personBirthDate").oninput=updateDateHints;
+$("#personDeathDate").oninput=updateDateHints;
 $("#zoomIn").onclick=()=>{scale=Math.min(1.5,scale+.1);applyTransform()};$("#zoomOut").onclick=()=>{scale=Math.max(.3,scale-.1);applyTransform()};
 $("#resetView").onclick=()=>{scale=.72;panX=95;panY=50;applyTransform()};
 $("#searchInput").oninput=e=>{const q=e.target.value.trim().toLowerCase();document.querySelectorAll(".person").forEach(el=>{const hit=!q||person(el.dataset.id).name.toLowerCase().includes(q);el.classList.toggle("search-dim",!!q&&!hit);el.classList.toggle("search-hit",!!q&&hit);});};
@@ -440,10 +794,11 @@ window.onkeydown=e=>{if(e.code==="Space"&&!["INPUT","TEXTAREA","SELECT"].include
 window.onkeyup=e=>{if(e.code==="Space"){spaceDown=false;viewport.classList.remove("space-ready")}};
 $("#authBtn").onclick=()=>{$("#loginMessage").textContent="";$("#registerMessage").textContent="";$("#authDialog").showModal()};
 $("#closeAuth").onclick=()=>$("#authDialog").close();
-$("#logoutBtn").onclick=()=>{
+$("#logoutBtn").onclick=async()=>{
+  if(!(await confirmUnsavedPersonForm()))return;
   localStorage.removeItem(SESSION_KEY);
   currentUser={username:"游客",role:"guest"};
-  closeDrawer();
+  await closeDrawer(true);
   renderAuthState();
 };
 $("#registerGeneration").innerHTML=`<option value="">请选择世代</option>${Array.from({length:16},(_,index)=>`<option value="${index+1}">第${toChinese(index+1)}世 [${ZI[index+1]||"未定"}]</option>`).join("")}`;
@@ -488,12 +843,12 @@ function renderHistory(){
     <td>${esc(record.user)}</td><td>${esc(record.action)}</td><td>${esc(record.target)}</td><td>${esc(record.detail)}</td>
   </tr>`).join(""):`<tr><td colspan="5" class="history-empty">暂无修改记录</td></tr>`;
   $("#clearHistory").hidden=!canEdit();
-  document.querySelectorAll("[data-review]").forEach(button=>button.onclick=()=>{
+  document.querySelectorAll("[data-review]").forEach(button=>button.onclick=async()=>{
     if(!canEdit())return;
     const request=changeRequests.find(item=>item.id===button.dataset.id);
     if(!request||request.status!=="pending")return;
     if(button.dataset.review==="approve"){
-      if(!applyChangeRequest(request)){alert("申请对应的数据已不存在，无法通过。");return}
+      if(!applyChangeRequest(request)){await showAlert("申请对应的数据已不存在，无法通过。");return}
       request.status="approved";
       addHistory("审核通过",request.target,`${request.name}：${request.detail}`);
       render();
@@ -508,8 +863,8 @@ function renderHistory(){
 }
 $("#historyBtn").onclick=()=>{if(!requireAccount())return;renderHistory();$("#historyDialog").showModal()};
 $("#closeHistory").onclick=()=>$("#historyDialog").close();
-$("#clearHistory").onclick=()=>{
-  if(!canEdit()||!confirm("确定清空全部修改记录吗？"))return;
+$("#clearHistory").onclick=async()=>{
+  if(!canEdit()||!(await showConfirm("确定清空全部修改记录吗？","清空记录")))return;
   historyRecords=[];
   localStorage.setItem(HISTORY_KEY,"[]");
   renderHistory();
@@ -549,14 +904,14 @@ $("#announcementImage").onchange=async()=>{
     const image=await readImageFile($("#announcementImage").files[0]);
     $("#announcementPreview").src=image;
     $("#announcementPreview").hidden=!image;
-  }catch(error){alert(error.message);$("#announcementImage").value="";$("#announcementPreview").hidden=true}
+  }catch(error){await showAlert(error.message);$("#announcementImage").value="";$("#announcementPreview").hidden=true}
 };
 $("#announcementForm").onsubmit=async e=>{
   e.preventDefault();
   if(!canEdit())return;
   const content=$("#announcementInput").value.trim();
   let image="";
-  try{image=await readImageFile($("#announcementImage").files[0])}catch(error){alert(error.message);return}
+  try{image=await readImageFile($("#announcementImage").files[0])}catch(error){await showAlert(error.message);return}
   if(!content&&!image)return;
   const announcement={id:`a${Date.now()}`,content,time:new Date().toISOString(),user:currentUser.username,image};
   announcements.unshift(announcement);
@@ -567,7 +922,53 @@ $("#announcementForm").onsubmit=async e=>{
   renderAnnouncementHistory();
   $("#announcementDialog").close();
 };
+$("#dataPortBtn").onclick=()=>{if(canEdit())$("#dataPortDialog").showModal()};
+$("#closeDataPort").onclick=()=>$("#dataPortDialog").close();
+$("#exportDataBtn").onclick=()=>{
+  if(!canEdit())return;
+  const payload={version:1,exportedAt:new Date().toISOString(),data};
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json;charset=utf-8"});
+  const url=URL.createObjectURL(blob);
+  const link=document.createElement("a");
+  link.href=url;
+  link.download=`zhang-family-data-${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  addHistory("导出数据","全族谱",`导出 ${data.people.length} 位人物数据`);
+};
+$("#importDataFile").onchange=async()=>{
+  const file=$("#importDataFile").files[0];
+  if(!file||!canEdit())return;
+  if(!(await showConfirm("导入会覆盖当前族谱人物和关系数据。\n是否已经导出备份并继续？","导入数据"))){$("#importDataFile").value="";return}
+  const reader=new FileReader();
+  reader.onload=async()=>{
+    try{
+      const imported=normalizeDataSet(JSON.parse(reader.result));
+      data=imported;
+      selectedId=null;
+      save();
+      addHistory("导入数据","全族谱",`导入 ${data.people.length} 位人物数据`);
+      $("#dataPortDialog").close();
+      $("#importDataFile").value="";
+      render();
+      await showAlert("数据导入完成。");
+    }catch(error){
+      await showAlert(`导入失败：${error.message}`);
+      $("#importDataFile").value="";
+    }
+  };
+  reader.onerror=async()=>{await showAlert("文件读取失败");$("#importDataFile").value=""};
+  reader.readAsText(file,"utf-8");
+};
+window.addEventListener("beforeunload",event=>{
+  if(!personFormDirty())return;
+  event.preventDefault();
+  event.returnValue="";
+});
 function initializeApp(){
+  setupTagEditor();
   save();
   saveUsers();
   render();

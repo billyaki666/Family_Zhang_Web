@@ -25,6 +25,7 @@
       <button id="zoomIn" class="icon-btn" title="放大">＋</button>
       <button id="resetView" class="ghost-btn">归位</button>
       <button id="historyBtn" class="ghost-btn">修改记录</button>
+      <button id="dataPortBtn" class="ghost-btn" hidden>导入 / 导出</button>
       <button id="addRoot" class="primary-btn">＋ 新增族人</button>
       <span id="userBadge" class="user-badge">游客</span>
       <button id="authBtn" class="ghost-btn">登录 / 注册</button>
@@ -79,26 +80,31 @@
         <span>显示字辈标记</span>
         <input id="personShowZi" type="checkbox">
       </label>
-      <div class="form-row">
-        <label>卡片标签<input id="personTagText" maxlength="12" placeholder="默认不显示"></label>
-        <label>标签颜色
-          <input id="personTagColor" type="hidden" value="#8c2f25">
-          <span id="tagColorPalette" class="color-palette">
-            <button type="button" data-color="#8c2f25" style="--swatch:#8c2f25" title="朱砂"></button>
-            <button type="button" data-color="#a77b36" style="--swatch:#a77b36" title="鎏金"></button>
-            <button type="button" data-color="#536b62" style="--swatch:#536b62" title="松绿"></button>
-            <button type="button" data-color="#3f6375" style="--swatch:#3f6375" title="黛蓝"></button>
-            <button type="button" data-color="#72566f" style="--swatch:#72566f" title="烟紫"></button>
-            <button type="button" data-color="#72513b" style="--swatch:#72513b" title="檀棕"></button>
-            <button type="button" data-color="#5d6468" style="--swatch:#5d6468" title="青灰"></button>
-            <button type="button" data-color="#2f2b27" style="--swatch:#2f2b27" title="墨黑"></button>
-          </span>
-        </label>
+      <div class="tag-editor">
+        <span class="tag-editor-title">卡片标签（最多三个，未填则不显示）</span>
+        <div id="tagRows" class="tag-rows">
+          <label>标签一<input class="tag-text" data-tag-index="0" maxlength="8" placeholder="如：排行"></label>
+          <label>颜色
+            <select class="tag-color" data-tag-index="0"></select>
+          </label>
+          <label>标签二<input class="tag-text" data-tag-index="1" maxlength="8"></label>
+          <label>颜色
+            <select class="tag-color" data-tag-index="1"></select>
+          </label>
+          <label>标签三<input class="tag-text" data-tag-index="2" maxlength="8"></label>
+          <label>颜色
+            <select class="tag-color" data-tag-index="2"></select>
+          </label>
+        </div>
       </div>
       <div class="form-row">
-        <label>出生时间<input id="personBirthDate" type="date"></label>
+        <label>出生时间
+          <input id="personBirthDate" type="text" placeholder="如 1990 / 1990-05-21 / 农历1990年正月初一">
+          <small id="birthDateHint" class="date-hint"></small>
+        </label>
         <label>死亡时间
-          <input id="personDeathDate" type="date">
+          <input id="personDeathDate" type="text" placeholder="如 1990 / 1990-05-21 / 农历1990年正月初一">
+          <small id="deathDateHint" class="date-hint"></small>
           <span class="unknown-date"><input id="personDeathUnknown" type="checkbox"> 日期不详</span>
         </label>
       </div>
@@ -194,6 +200,32 @@
       <button class="primary-btn" type="submit">发布公告</button>
     </form>
     <div id="announcementHistory" class="announcement-history"></div>
+  </dialog>
+
+  <dialog id="dataPortDialog" class="data-port-dialog">
+    <div class="drawer-head">
+      <div><span class="eyebrow">数据维护</span><h2>人物数据导入 / 导出</h2></div>
+      <button id="closeDataPort" class="close-btn">×</button>
+    </div>
+    <p class="data-port-note">仅管理员可用。导出包含当前所有人物、婚姻关系、父子关系和人物档案字段；导入会覆盖当前族谱数据，请先导出备份。</p>
+    <div class="data-port-actions">
+      <button id="exportDataBtn" class="primary-btn" type="button">导出 JSON</button>
+      <label class="import-file">导入 JSON<input id="importDataFile" type="file" accept="application/json,.json"></label>
+    </div>
+  </dialog>
+
+  <dialog id="messageDialog" class="message-dialog">
+    <div class="message-ornament"></div>
+    <button id="messageClose" class="close-btn message-close" type="button">×</button>
+    <div class="message-body">
+      <span id="messageEyebrow" class="eyebrow">温馨提示</span>
+      <h2 id="messageTitle">提示</h2>
+      <p id="messageText"></p>
+    </div>
+    <div class="message-actions">
+      <button id="messageCancel" class="ghost-btn" type="button">取消</button>
+      <button id="messageConfirm" class="primary-btn" type="button">确定</button>
+    </div>
   </dialog>
 
   <script src="app.js"></script>
