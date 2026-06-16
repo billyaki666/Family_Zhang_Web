@@ -83,16 +83,33 @@ button { cursor: pointer; }
   border-color: #aa9d85; box-shadow: 0 4px 12px rgba(68,61,49,.11), inset 0 0 18px rgba(96,91,76,.06);
 }
 .person.deceased::after {
-  content: "💐"; position: absolute; z-index: 2; left: 50%; bottom: 22px; width: 22px; height: 17px;
-  color: rgba(139,112,64,.78); font-family: "Segoe UI Emoji","Microsoft YaHei",sans-serif;
-  font-size: 14px; line-height: 17px; text-align: center; transform: translateX(-50%); opacity: .68;
-  filter: sepia(.22) saturate(.75) drop-shadow(0 1px 1px rgba(72,54,34,.18)); pointer-events: none;
+  content: ""; position: absolute; z-index: 1; top: 1px; left: 7px; right: 1px; height: 7px; opacity: .34; pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(151,113,52,.7) 0 1px, transparent 1px 8px),
+    linear-gradient(90deg, transparent 0 3px, rgba(151,113,52,.62) 3px 4px, transparent 4px 8px),
+    linear-gradient(90deg, transparent 0 4px, rgba(140,47,37,.45) 4px 8px, transparent 8px 12px),
+    linear-gradient(180deg, rgba(151,113,52,.55), rgba(151,113,52,.18));
+  background-size: 12px 7px, 12px 7px, 12px 1px, 100% 1px;
+  background-repeat: repeat-x, repeat-x, repeat-x, no-repeat;
+  background-position: 0 0, 0 5px, 0 3px, 0 0;
 }
 .person.deceased .person-name { color: #5e584e; }
 .person:hover, .person.selected { border-color: var(--red); box-shadow: 0 6px 18px rgba(100,38,28,.15); z-index: 3; }
 .person.search-dim { opacity: .22; }
 .person.search-hit { border-color: var(--red); box-shadow: 0 0 0 3px rgba(140,47,37,.15); }
-.person-top { height: 53px; display: flex; flex-direction: row-reverse; justify-content: space-between; align-items: flex-start; }
+.person-top { position: relative; height: 53px; display: flex; flex-direction: row-reverse; justify-content: space-between; align-items: flex-start; }
+.person.deceased .person-top::after {
+  content: ""; position: absolute; z-index: 1; top: -6px; right: -6px; bottom: -23px; width: 7px; opacity: .32; pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(151,113,52,.7) 0 1px, transparent 1px 8px),
+    linear-gradient(180deg, transparent 0 3px, rgba(151,113,52,.62) 3px 4px, transparent 4px 8px),
+    linear-gradient(180deg, transparent 0 4px, rgba(140,47,37,.45) 4px 8px, transparent 8px 12px),
+    linear-gradient(90deg, rgba(151,113,52,.18), rgba(151,113,52,.55));
+  background-size: 7px 12px, 7px 12px, 1px 12px, 1px 100%;
+  background-repeat: repeat-y, repeat-y, repeat-y, no-repeat;
+  background-position: 0 0, 5px 0, 3px 0, right top;
+}
+.person-name, .zi-badge { position: relative; z-index: 2; }
 .person-name { writing-mode: vertical-rl; font-size: 14px; font-weight: 600; letter-spacing: .08em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .person.spouse .person-name { font-size: 13px; }
 .zi-badge { flex: none; color: var(--red); font-size: 10px; border: 1px solid rgba(140,47,37,.35); padding: 2px 3px; line-height: 1; }
