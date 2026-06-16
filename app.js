@@ -5,6 +5,7 @@ const SESSION_KEY = "zhang-family-session-v1";
 const HISTORY_KEY = "zhang-family-history-v1";
 const REQUESTS_KEY = "zhang-family-requests-v1";
 const ANNOUNCEMENTS_KEY = "zhang-family-announcements-v1";
+const CLOUD_DATA_ENDPOINT = "/api/data";
 const CARD_W = 64, SPOUSE_W = 48, CARD_H = 84, SPOUSE_GAP = 10, FAMILY_GAP = 18, ROW_GAP = 138, MARGIN = 110;
 const TAG_COLORS = [
   ["#8c2f25","朱砂"],
@@ -88,29 +89,100 @@ function initialData() {
   return {people,unions,parentLinks};
 }
 
-let data;
-try { data = normalizeDataSet(JSON.parse(localStorage.getItem(STORAGE_KEY)) || initialData()); } catch { data = normalizeDataSet(initialData()); }
-let users = readStorage(USERS_KEY, [])
-  .filter(user=>user.username!=="admin123")
-  .map(user=>({...user,role:user.role==="admin"?"member":user.role}));
-users.unshift({username:"admin123",name:"管理员",generation:0,passwordHash:passwordHash("admin123"),role:"admin",createdAt:"system"});
-localStorage.setItem(USERS_KEY,JSON.stringify(users));
-let historyRecords = readStorage(HISTORY_KEY, []);
-let changeRequests = readStorage(REQUESTS_KEY, []);
-let announcements = readStorage(ANNOUNCEMENTS_KEY, []);
-let currentUser = users.find(user => user.username === localStorage.getItem(SESSION_KEY)) || {username:"游客",role:"guest"};
+let data = normalizeDataSet(initialData());
+let users = [];
+let historyRecords = [];
+let changeRequests = [];
+let announcements = [];
+let messageBoard = [];
+let currentUser = {username:"游客",role:"guest"};
 let scale=.72, panX=95, panY=50, selectedId=null, isPanning=false, spaceDown=false, start={}, personFormSnapshot="";
 const $ = s => document.querySelector(s);
 const viewport=$("#viewport"), canvas=$("#canvas"), tree=$("#tree"), links=$("#links");
-const save = () => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-};
-const saveUsers = () => {
-  localStorage.setItem(USERS_KEY,JSON.stringify(users));
-};
+const save = () => saveCloudState();
+const saveUsers = () => saveCloudState();
 const person = id => data.people.find(p=>p.id===id);
 const esc = s => String(s||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function readStorage(key,fallback){try{return JSON.parse(localStorage.getItem(key))||fallback}catch{return fallback}}
+function normalizeUsers(source=[], dataSet=data){
+  const storedUsers=Array.isArray(source)?source:[];
+  const memberUsers=storedUsers
+    .filter(user=>user.username&&user.username!=="admin123")
+    .map(user=>{
+      const linkedPerson=dataSet?.people?.find(item=>item.id===user.personId);
+      return {
+        ...user,
+        name: linkedPerson?.name || user.name || user.username,
+        generation: linkedPerson?.generation || user.generation || "",
+        zi: linkedPerson?.zi || user.zi || "",
+        role:user.role==="admin"?"member":user.role
+      };
+    });
+  return [
+    {username:"admin123",name:"管理员",generation:0,zi:"",passwordHash:passwordHash("admin123"),role:"admin",createdAt:"system"},
+    ...memberUsers
+  ];
+}
+function fallbackState(){
+  let storedData;
+  try{storedData=JSON.parse(localStorage.getItem(STORAGE_KEY))}catch{storedData=null}
+  const normalizedData=normalizeDataSet(storedData || initialData());
+  return {
+    data: normalizedData,
+    users: normalizeUsers(readStorage(USERS_KEY, []), normalizedData),
+    historyRecords: readStorage(HISTORY_KEY, []),
+    changeRequests: readStorage(REQUESTS_KEY, []),
+    announcements: readStorage(ANNOUNCEMENTS_KEY, []),
+    messageBoard: []
+  };
+}
+function applyState(state){
+  data=normalizeDataSet(state?.data || initialData());
+  users=normalizeUsers(state?.users || [], data);
+  historyRecords=Array.isArray(state?.historyRecords)?state.historyRecords:[];
+  changeRequests=Array.isArray(state?.changeRequests)?state.changeRequests:[];
+  announcements=Array.isArray(state?.announcements)?state.announcements:[];
+  messageBoard=Array.isArray(state?.messageBoard)?state.messageBoard:[];
+  currentUser=users.find(user => user.username === localStorage.getItem(SESSION_KEY)) || {username:"游客",role:"guest"};
+}
+function currentState(){
+  return {data,users,historyRecords,changeRequests,announcements,messageBoard};
+}
+function normalizeAppState(source){
+  if(source?.state)return source.state;
+  if(source?.data||source?.people){
+    return {...currentState(),data:normalizeDataSet(source)};
+  }
+  throw new Error("数据格式不正确");
+}
+async function loadCloudState(){
+  try{
+    const response=await fetch(CLOUD_DATA_ENDPOINT,{cache:"no-store"});
+    if(!response.ok)throw new Error(`HTTP ${response.status}`);
+    const payload=await response.json();
+    if(payload.state){
+      applyState(payload.state);
+      return;
+    }
+  }catch(error){
+    console.warn("读取云端数据失败，使用本地初始化数据",error);
+  }
+  applyState(fallbackState());
+  await saveCloudState();
+}
+async function saveCloudState(){
+  try{
+    const response=await fetch(CLOUD_DATA_ENDPOINT,{
+      method:"POST",
+      headers:{"content-type":"application/json"},
+      body:JSON.stringify({state:currentState()})
+    });
+    if(!response.ok)throw new Error(`HTTP ${response.status}`);
+  }catch(error){
+    console.error("保存云端数据失败",error);
+    throw error;
+  }
+}
 function createPersonRecord(values={}){
   const generation=Number(values.generation)||1;
   return {
@@ -166,8 +238,45 @@ function normalizeDataSet(source){
 function passwordHash(value){let hash=2166136261;for(const char of value){hash^=char.charCodeAt(0);hash=Math.imul(hash,16777619)}return (hash>>>0).toString(16)}
 function canEdit(){return currentUser.role==="admin"}
 function canPropose(){return currentUser.role==="admin"||currentUser.role==="member"}
-function requireAccount(){if(canPropose())return true;$("#authDialog").showModal();return false}
+function requireAccount(){if(canPropose())return true;setAuthTab("login");$("#authDialog").showModal();return false}
 function requireAdmin(){if(canEdit())return true;return false}
+function userLine(user=currentUser){
+  if(user.role==="admin")return "管理员";
+  const generation=user.generation?`第${toChinese(+user.generation)}世`:"世代未定";
+  const zi=user.zi?` · ${user.zi}字辈`:"";
+  return `${generation}${zi} · ${user.name||user.username}`;
+}
+function currentUserSnapshot(){
+  return {
+    username: currentUser.username,
+    name: currentUser.name || currentUser.username,
+    generation: currentUser.generation || "",
+    zi: currentUser.zi || "",
+    personId: currentUser.personId || "",
+    role: currentUser.role
+  };
+}
+function personOptionLabel(p){
+  const zi=p.zi?` · ${p.zi}字辈`:"";
+  const note=p.note?` · ${p.note}`:"";
+  return `${p.name}${zi}${note}`;
+}
+function updateRegisterPersonOptions(){
+  const generation=+$("#registerGeneration").value;
+  const select=$("#registerPerson");
+  const registeredPersonIds=new Set(users.map(user=>user.personId).filter(Boolean));
+  const people=data.people
+    .filter(p=>p.generation===generation)
+    .sort((a,b)=>a.name.localeCompare(b.name,"zh-CN"));
+  select.innerHTML=generation
+    ? `<option value="">请选择对应人物</option>${people.map(p=>`<option value="${esc(p.id)}"${registeredPersonIds.has(p.id)?" disabled":""}>${esc(personOptionLabel(p))}${registeredPersonIds.has(p.id)?"（已注册）":""}</option>`).join("")}`
+    : `<option value="">请先选择世代</option>`;
+  $("#registerName").value="";
+}
+function syncRegisterNameFromPerson(){
+  const selected=person($("#registerPerson").value);
+  if(selected)$("#registerName").value=selected.name;
+}
 function showMessage(options={}){
   const dialog=$("#messageDialog");
   const confirmButton=$("#messageConfirm");
@@ -328,23 +437,24 @@ function addHistory(action,target,detail){
   const record={id:`h${Date.now()}`,time:new Date().toISOString(),user:currentUser.username,action,target,detail};
   historyRecords.unshift(record);
   historyRecords=historyRecords.slice(0,500);
-  localStorage.setItem(HISTORY_KEY,JSON.stringify(historyRecords));
+  saveCloudState().catch(error=>console.error("保存修改记录失败",error));
 }
 function addRequest(type,target,targetId,payload,detail){
   const request={id:`r${Date.now()}${Math.random().toString(16).slice(2,6)}`,time:new Date().toISOString(),user:currentUser.username,name:currentUser.name||currentUser.username,generation:currentUser.generation||"",type,target,targetId,payload,detail,status:"pending"};
   changeRequests.unshift(request);
-  localStorage.setItem(REQUESTS_KEY,JSON.stringify(changeRequests));
+  saveCloudState().catch(error=>console.error("保存申请失败",error));
   return request;
 }
 function renderAuthState(){
   const admin=canEdit();
   const member=currentUser.role==="member";
-  $("#userBadge").textContent=admin?`管理员 · ${currentUser.username}`:member?`族人 · ${currentUser.name}`:"游客只读";
+  $("#userBadge").textContent=admin?`管理员 · ${currentUser.username}`:member?userLine(currentUser):"游客只读";
   $("#userBadge").classList.toggle("admin",admin);
   $("#authBtn").hidden=admin||member;
   $("#logoutBtn").hidden=!(admin||member);
   $("#addRoot").hidden=!canPropose();
   $("#historyBtn").hidden=!(admin||member);
+  $("#messageBoardBtn").hidden=!(admin||member);
   $("#historyBtn").textContent=admin?"审核与记录":"我的申请";
   $("#editAnnouncementBtn").hidden=!admin;
   $("#dataPortBtn").hidden=!admin;
@@ -654,8 +764,8 @@ async function submitPersonForm(options={}){
   if(canEdit()){
     Object.assign(p,proposed);
     normalizePerson(p);
-    save();
     addHistory("编辑人物",p.name,changes.join("；"));
+    await save();
     markPersonFormClean();
     if(!silent){render();await openPerson(p.id)}
     return true;
@@ -761,7 +871,6 @@ function applyChangeRequest(request){
     if(data.people.some(item=>item.id===newPerson.id))newPerson.id=`p${Date.now()}${Math.random().toString(16).slice(2,5)}`;
     data.people.push(newPerson);
   }else return false;
-  save();
   return true;
 }
 $("#personForm").onsubmit=async e=>{e.preventDefault();await submitPersonForm()};
@@ -770,11 +879,11 @@ $("#relationForm").onsubmit=async e=>{
   const base=person($("#relationPersonId").value),type=$("#relationType").value,id=`p${Date.now()}`;
   const generation=type==="parent"?base.generation-1:type==="child"?base.generation+1:base.generation;
   const newPerson=createPersonRecord({id,name:$("#relationName").value.trim(),gender:$("#relationGender").value,generation,zi:$("#relationZi").value.trim(),note:$("#relationNote").value.trim(),showZi:type!=="spouse"});
-  if(canEdit()){applyRelationChange({baseId:base.id,type,newPerson});addHistory(type==="spouse"?"新增配偶":type==="parent"?"新增父母":"新增子女",newPerson.name,`与 ${base.name} 建立关系`);save();$("#relationDialog").close();render();await openPerson(base.id)}
+  if(canEdit()){applyRelationChange({baseId:base.id,type,newPerson});addHistory(type==="spouse"?"新增配偶":type==="parent"?"新增父母":"新增子女",newPerson.name,`与 ${base.name} 建立关系`);await save();$("#relationDialog").close();render();await openPerson(base.id)}
   else{addRequest("addRelation",newPerson.name,base.id,{baseId:base.id,type,newPerson},`申请与 ${base.name} 建立${type==="spouse"?"配偶":type==="parent"?"父母":"子女"}关系`);$("#relationDialog").close();await closeDrawer(true);await showAlert("亲属关系申请已提交，管理员审核通过后生效。")}
 };
-$("#deletePerson").onclick=async()=>{if(!requireAccount())return;const id=$("#personId").value,p=person(id);if(!p||!(await showConfirm(canEdit()?`确定删除“${p.name}”及其全部关系吗？`:`确定提交删除“${p.name}”的申请吗？`,"删除人物")))return;if(canEdit()){applyDeletePerson(id);addHistory("删除人物",p.name,"删除人物及其全部亲属关系");save();await closeDrawer(true)}else{addRequest("deletePerson",p.name,id,{},"申请删除人物及其全部亲属关系");await closeDrawer(true);await showAlert("删除申请已提交，管理员审核通过后生效。")}};
-$("#addRoot").onclick=async()=>{if(!requireAccount())return;const newPerson=createPersonRecord({id:`p${Date.now()}`,name:"新族人",gender:"male",generation:1,zi:"启",showZi:true});if(canEdit()){data.people.push(newPerson);addHistory("新增人物","新族人","新增独立族人");save();render();await openPerson(newPerson.id)}else{addRequest("addRoot","新族人","",newPerson,"申请新增独立族人");await showAlert("新增人物申请已提交，管理员审核通过后生效。")}};
+$("#deletePerson").onclick=async()=>{if(!requireAccount())return;const id=$("#personId").value,p=person(id);if(!p||!(await showConfirm(canEdit()?`确定删除“${p.name}”及其全部关系吗？`:`确定提交删除“${p.name}”的申请吗？`,"删除人物")))return;if(canEdit()){applyDeletePerson(id);addHistory("删除人物",p.name,"删除人物及其全部亲属关系");await save();await closeDrawer(true)}else{addRequest("deletePerson",p.name,id,{},"申请删除人物及其全部亲属关系");await closeDrawer(true);await showAlert("删除申请已提交，管理员审核通过后生效。")}};
+$("#addRoot").onclick=async()=>{if(!requireAccount())return;const newPerson=createPersonRecord({id:`p${Date.now()}`,name:"新族人",gender:"male",generation:1,zi:"启",showZi:true});if(canEdit()){data.people.push(newPerson);addHistory("新增人物","新族人","新增独立族人");await save();render();await openPerson(newPerson.id)}else{addRequest("addRoot","新族人","",newPerson,"申请新增独立族人");await showAlert("新增人物申请已提交，管理员审核通过后生效。")}};
 $("#closeDrawer").onclick=()=>closeDrawer();$("#modalBackdrop").onclick=()=>closeDrawer();
 $("#personDeathUnknown").onchange=()=>{
   $("#personDeathDate").disabled=$("#personDeathUnknown").checked||!canPropose();
@@ -792,7 +901,20 @@ window.onmousemove=e=>{if(isPanning){panX=start.px+e.clientX-start.x;panY=start.
 window.onmouseup=()=>{isPanning=false;viewport.classList.remove("panning")};
 window.onkeydown=e=>{if(e.code==="Space"&&!["INPUT","TEXTAREA","SELECT"].includes(document.activeElement.tagName)){e.preventDefault();spaceDown=true;viewport.classList.add("space-ready");}};
 window.onkeyup=e=>{if(e.code==="Space"){spaceDown=false;viewport.classList.remove("space-ready")}};
-$("#authBtn").onclick=()=>{$("#loginMessage").textContent="";$("#registerMessage").textContent="";$("#authDialog").showModal()};
+function setAuthTab(mode){
+  const registerMode=mode==="register";
+  $("#loginForm").hidden=registerMode;
+  $("#registerForm").hidden=!registerMode;
+  $("#loginTab").classList.toggle("active",!registerMode);
+  $("#registerTab").classList.toggle("active",registerMode);
+  $("#loginTab").setAttribute("aria-selected",String(!registerMode));
+  $("#registerTab").setAttribute("aria-selected",String(registerMode));
+  $("#loginMessage").textContent="";
+  $("#registerMessage").textContent="";
+}
+$("#authBtn").onclick=()=>{setAuthTab("login");$("#authDialog").showModal()};
+$("#loginTab").onclick=()=>setAuthTab("login");
+$("#registerTab").onclick=()=>setAuthTab("register");
 $("#closeAuth").onclick=()=>$("#authDialog").close();
 $("#logoutBtn").onclick=async()=>{
   if(!(await confirmUnsavedPersonForm()))return;
@@ -801,7 +923,13 @@ $("#logoutBtn").onclick=async()=>{
   await closeDrawer(true);
   renderAuthState();
 };
-$("#registerGeneration").innerHTML=`<option value="">请选择世代</option>${Array.from({length:16},(_,index)=>`<option value="${index+1}">第${toChinese(index+1)}世 [${ZI[index+1]||"未定"}]</option>`).join("")}`;
+function setupRegisterOptions(){
+  const generations=[...new Set(data.people.map(p=>p.generation))].sort((a,b)=>a-b);
+  $("#registerGeneration").innerHTML=`<option value="">请选择世代</option>${generations.map(generation=>`<option value="${generation}">第${toChinese(generation)}世 [${ZI[generation]||"未定"}]</option>`).join("")}`;
+  updateRegisterPersonOptions();
+}
+$("#registerGeneration").onchange=updateRegisterPersonOptions;
+$("#registerPerson").onchange=syncRegisterNameFromPerson;
 $("#loginForm").onsubmit=e=>{
   e.preventDefault();
   const username=$("#loginUsername").value.trim();
@@ -813,19 +941,24 @@ $("#loginForm").onsubmit=e=>{
   $("#loginForm").reset();
   renderAuthState();
 };
-$("#registerForm").onsubmit=e=>{
+$("#registerForm").onsubmit=async e=>{
   e.preventDefault();
-  const name=$("#registerName").value.trim(),generation=+$("#registerGeneration").value,password=$("#registerPassword").value,confirmPassword=$("#registerConfirm").value;
+  const selectedPerson=person($("#registerPerson").value);
+  const name=selectedPerson?.name || $("#registerName").value.trim(),generation=+$("#registerGeneration").value,password=$("#registerPassword").value,confirmPassword=$("#registerConfirm").value;
+  if(!selectedPerson){$("#registerMessage").textContent="请选择对应的族谱人物";return}
+  if(selectedPerson.generation!==generation){$("#registerMessage").textContent="所选人物与世代不一致";return}
   if(name==="admin123"){$("#registerMessage").textContent="该账号为系统管理员账号，不可注册";return}
+  if(users.some(user=>user.personId===selectedPerson.id)){$("#registerMessage").textContent="该族谱人物已注册账号";return}
   if(users.some(user=>user.username===name)){$("#registerMessage").textContent="该姓名账号已存在";return}
   if(password!==confirmPassword){$("#registerMessage").textContent="两次输入的密码不一致";return}
-  const user={username:name,name,generation,passwordHash:passwordHash(password),role:"member",createdAt:new Date().toISOString()};
+  const user={username:name,name,generation,zi:selectedPerson.zi||"",personId:selectedPerson.id,passwordHash:passwordHash(password),role:"member",createdAt:new Date().toISOString()};
   users.push(user);
-  saveUsers();
+  await saveUsers();
   currentUser=user;
   localStorage.setItem(SESSION_KEY,user.username);
   $("#authDialog").close();
   $("#registerForm").reset();
+  updateRegisterPersonOptions();
   renderAuthState();
 };
 function renderHistory(){
@@ -857,7 +990,7 @@ function renderHistory(){
     }
     request.reviewer=currentUser.username;
     request.reviewedAt=new Date().toISOString();
-    localStorage.setItem(REQUESTS_KEY,JSON.stringify(changeRequests));
+    saveCloudState().catch(error=>console.error("保存审核结果失败",error));
     renderHistory();
   });
 }
@@ -866,8 +999,62 @@ $("#closeHistory").onclick=()=>$("#historyDialog").close();
 $("#clearHistory").onclick=async()=>{
   if(!canEdit()||!(await showConfirm("确定清空全部修改记录吗？","清空记录")))return;
   historyRecords=[];
-  localStorage.setItem(HISTORY_KEY,"[]");
+  saveCloudState().catch(error=>console.error("清空修改记录失败",error));
   renderHistory();
+};
+function renderMessageBoard(){
+  if(!canPropose())return;
+  $("#messageBoardList").innerHTML=messageBoard.length?messageBoard.map(message=>`<article class="board-message">
+    <header>
+      <strong>${esc(userLine(message.author))}</strong>
+      <time>${esc(new Date(message.time).toLocaleString("zh-CN",{hour12:false}))}</time>
+    </header>
+    <p>${esc(message.content)}</p>
+    <div class="board-replies">
+      ${(message.replies||[]).map(reply=>`<section class="board-reply">
+        <header>
+          <strong>${esc(userLine(reply.author))}</strong>
+          <time>${esc(new Date(reply.time).toLocaleString("zh-CN",{hour12:false}))}</time>
+        </header>
+        <p>${esc(reply.content)}</p>
+      </section>`).join("")}
+    </div>
+    <form class="board-reply-form" data-message-id="${esc(message.id)}">
+      <textarea rows="2" maxlength="300" placeholder="回复这条留言"></textarea>
+      <button class="ghost-btn" type="submit">回复</button>
+    </form>
+  </article>`).join(""):`<div class="board-empty">暂无留言</div>`;
+  document.querySelectorAll(".board-reply-form").forEach(form=>form.onsubmit=async event=>{
+    event.preventDefault();
+    if(!canPropose())return;
+    const textarea=form.querySelector("textarea");
+    const content=textarea.value.trim();
+    if(!content)return;
+    const message=messageBoard.find(item=>item.id===form.dataset.messageId);
+    if(!message)return;
+    message.replies=Array.isArray(message.replies)?message.replies:[];
+    message.replies.push({id:`mr${Date.now()}${Math.random().toString(16).slice(2,6)}`,time:new Date().toISOString(),author:currentUserSnapshot(),content});
+    await saveCloudState();
+    textarea.value="";
+    renderMessageBoard();
+  });
+}
+$("#messageBoardBtn").onclick=()=>{
+  if(!requireAccount())return;
+  renderMessageBoard();
+  $("#messageBoardDialog").showModal();
+};
+$("#closeMessageBoard").onclick=()=>$("#messageBoardDialog").close();
+$("#messageBoardForm").onsubmit=async e=>{
+  e.preventDefault();
+  if(!canPropose())return;
+  const content=$("#messageBoardInput").value.trim();
+  if(!content)return;
+  messageBoard.unshift({id:`m${Date.now()}${Math.random().toString(16).slice(2,6)}`,time:new Date().toISOString(),author:currentUserSnapshot(),content,replies:[]});
+  messageBoard=messageBoard.slice(0,300);
+  await saveCloudState();
+  $("#messageBoardInput").value="";
+  renderMessageBoard();
 };
 function renderAnnouncement(){
   const latest=announcements[0];
@@ -916,8 +1103,8 @@ $("#announcementForm").onsubmit=async e=>{
   const announcement={id:`a${Date.now()}`,content,time:new Date().toISOString(),user:currentUser.username,image};
   announcements.unshift(announcement);
   announcements=announcements.slice(0,100);
-  localStorage.setItem(ANNOUNCEMENTS_KEY,JSON.stringify(announcements));
   addHistory("发布公告","宗族公告",content);
+  await saveCloudState();
   renderAnnouncement();
   renderAnnouncementHistory();
   $("#announcementDialog").close();
@@ -926,30 +1113,31 @@ $("#dataPortBtn").onclick=()=>{if(canEdit())$("#dataPortDialog").showModal()};
 $("#closeDataPort").onclick=()=>$("#dataPortDialog").close();
 $("#exportDataBtn").onclick=()=>{
   if(!canEdit())return;
-  const payload={version:1,exportedAt:new Date().toISOString(),data};
+  const payload={version:2,exportedAt:new Date().toISOString(),state:currentState()};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json;charset=utf-8"});
   const url=URL.createObjectURL(blob);
   const link=document.createElement("a");
   link.href=url;
-  link.download=`zhang-family-data-${new Date().toISOString().slice(0,10)}.json`;
+  link.download=`zhang-family-cloud-backup-${new Date().toISOString().slice(0,10)}.json`;
   document.body.appendChild(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-  addHistory("导出数据","全族谱",`导出 ${data.people.length} 位人物数据`);
+  addHistory("导出数据","云端备份",`导出 ${data.people.length} 位人物、${messageBoard.length} 条留言`);
 };
 $("#importDataFile").onchange=async()=>{
   const file=$("#importDataFile").files[0];
   if(!file||!canEdit())return;
-  if(!(await showConfirm("导入会覆盖当前族谱人物和关系数据。\n是否已经导出备份并继续？","导入数据"))){$("#importDataFile").value="";return}
+  if(!(await showConfirm("导入会覆盖当前云端数据。\n是否已经导出备份并继续？","导入数据"))){$("#importDataFile").value="";return}
   const reader=new FileReader();
   reader.onload=async()=>{
     try{
-      const imported=normalizeDataSet(JSON.parse(reader.result));
-      data=imported;
+      const importedState=normalizeAppState(JSON.parse(reader.result));
+      applyState(importedState);
       selectedId=null;
-      save();
       addHistory("导入数据","全族谱",`导入 ${data.people.length} 位人物数据`);
+      await save();
+      setupRegisterOptions();
       $("#dataPortDialog").close();
       $("#importDataFile").value="";
       render();
@@ -967,12 +1155,20 @@ window.addEventListener("beforeunload",event=>{
   event.preventDefault();
   event.returnValue="";
 });
-function initializeApp(){
+async function initializeApp(){
   setupTagEditor();
-  save();
-  saveUsers();
+  await loadCloudState();
+  setupRegisterOptions();
   render();
   renderAuthState();
   renderAnnouncement();
 }
-initializeApp();
+initializeApp().catch(async error=>{
+  console.error("应用初始化失败",error);
+  applyState(fallbackState());
+  setupRegisterOptions();
+  render();
+  renderAuthState();
+  renderAnnouncement();
+  await showAlert("云端数据读取失败，已临时显示本地初始数据。请稍后刷新重试。");
+});

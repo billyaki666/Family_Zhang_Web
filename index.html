@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>张氏族谱 · 世系图</title>
+  <link rel="icon" href="assets/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" href="assets/favicon.png">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -25,6 +27,7 @@
       <button id="zoomIn" class="icon-btn" title="放大">＋</button>
       <button id="resetView" class="ghost-btn">归位</button>
       <button id="historyBtn" class="ghost-btn">修改记录</button>
+      <button id="messageBoardBtn" class="ghost-btn" hidden>留言板</button>
       <button id="dataPortBtn" class="ghost-btn" hidden>导入 / 导出</button>
       <button id="addRoot" class="primary-btn">＋ 新增族人</button>
       <span id="userBadge" class="user-badge">游客</span>
@@ -141,7 +144,11 @@
       <div><span class="eyebrow">账号权限</span><h2>登录与族人注册</h2></div>
       <button id="closeAuth" class="close-btn">×</button>
     </div>
-    <div class="auth-grid">
+    <div class="auth-tabs" role="tablist" aria-label="登录与注册">
+      <button id="loginTab" class="auth-tab active" type="button" role="tab" aria-selected="true" aria-controls="loginForm">登录</button>
+      <button id="registerTab" class="auth-tab" type="button" role="tab" aria-selected="false" aria-controls="registerForm">注册族人账号</button>
+    </div>
+    <div class="auth-panels">
       <form id="loginForm">
         <h3>登录</h3>
         <label>账号<input id="loginUsername" autocomplete="username" required></label>
@@ -151,10 +158,15 @@
       </form>
       <form id="registerForm">
         <h3>注册族人账号</h3>
-        <label>本人姓名（登录账号）<input id="registerName" minlength="2" required></label>
+        <label>本人姓名（登录账号）<input id="registerName" minlength="2" placeholder="选择族谱人物后自动填入" readonly required></label>
         <label>所属世代
           <select id="registerGeneration" required>
             <option value="">请选择世代</option>
+          </select>
+        </label>
+        <label>对应族谱人物
+          <select id="registerPerson" required>
+            <option value="">请先选择世代</option>
           </select>
         </label>
         <label>密码<input id="registerPassword" type="password" minlength="6" required></label>
@@ -163,7 +175,7 @@
         <button class="ghost-btn wide" type="submit">注册账号</button>
       </form>
     </div>
-    <p class="auth-note">游客可直接浏览；族人账号可提交修改申请；管理员账号固定为 admin123 / admin123，负责审核并维护族谱。</p>
+    <p class="auth-note">游客可直接浏览；族人账号可提交修改申请；维护管理员为张必麟,微信: timorgogogo，负责审核并维护族谱。</p>
   </dialog>
 
   <dialog id="historyDialog" class="history-dialog">
@@ -188,6 +200,18 @@
     <button id="clearHistory" class="danger-btn">清空记录</button>
   </dialog>
 
+  <dialog id="messageBoardDialog" class="message-board-dialog">
+    <div class="drawer-head">
+      <div><span class="eyebrow">族人留言</span><h2>留言板</h2></div>
+      <button id="closeMessageBoard" class="close-btn">×</button>
+    </div>
+    <form id="messageBoardForm">
+      <label>发表留言<textarea id="messageBoardInput" rows="3" maxlength="500" placeholder="写下要和族人分享的话"></textarea></label>
+      <button class="primary-btn" type="submit">发布留言</button>
+    </form>
+    <div id="messageBoardList" class="message-board-list"></div>
+  </dialog>
+
   <dialog id="announcementDialog" class="announcement-dialog">
     <div class="drawer-head">
       <div><span class="eyebrow">宗族公告</span><h2 id="announcementDialogTitle">历史公告</h2></div>
@@ -207,7 +231,7 @@
       <div><span class="eyebrow">数据维护</span><h2>人物数据导入 / 导出</h2></div>
       <button id="closeDataPort" class="close-btn">×</button>
     </div>
-    <p class="data-port-note">仅管理员可用。导出包含当前所有人物、婚姻关系、父子关系和人物档案字段；导入会覆盖当前族谱数据，请先导出备份。</p>
+    <p class="data-port-note">仅管理员可用。导出包含云端保存的人物、账号、申请、公告、留言板和修改记录；导入会覆盖云端数据，请先导出备份。</p>
     <div class="data-port-actions">
       <button id="exportDataBtn" class="primary-btn" type="button">导出 JSON</button>
       <label class="import-file">导入 JSON<input id="importDataFile" type="file" accept="application/json,.json"></label>
