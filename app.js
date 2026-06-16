@@ -203,6 +203,7 @@ function createPersonRecord(values={}){
     birthCalendar: values.birthCalendar || "",
     birthSolar: values.birthSolar || "",
     birthLunar: values.birthLunar || "",
+    birthUnknown: Boolean(values.birthUnknown),
     deathDate: values.deathDate || "",
     deathCalendar: values.deathCalendar || "",
     deathSolar: values.deathSolar || "",
@@ -451,6 +452,7 @@ function formatStoredDate(p,type){
   const raw=p[`${type}Date`]||"";
   const solar=p[`${type}Solar`]||"";
   const lunar=p[`${type}Lunar`]||"";
+  if(type==="birth"&&p.birthUnknown)return "不详";
   if(type==="death"&&p.deathUnknown)return "不详";
   if(!raw)return "未填写";
   return lunar&&solar?`${lunar}（阳历 ${solar}）`:raw;
@@ -730,10 +732,11 @@ function collectTagData(){
   return {tagMode,tagText:tagItems.map(item=>item.text).join("、"),tagItems,tagColor};
 }
 function updateDateHints(){
-  const birth=parseFlexibleDate($("#personBirthDate").value);
+  const birthUnknown=$("#personBirthUnknown").checked;
+  const birth=birthUnknown?{raw:""}:parseFlexibleDate($("#personBirthDate").value);
   const deathUnknown=$("#personDeathUnknown").checked;
   const death=deathUnknown?{raw:""}:parseFlexibleDate($("#personDeathDate").value);
-  $("#birthDateHint").textContent=dateHint(birth);
+  $("#birthDateHint").textContent=birthUnknown?"出生时间记录为：不详":dateHint(birth);
   $("#birthDateHint").classList.toggle("error",Boolean(birth.error));
   $("#deathDateHint").textContent=deathUnknown?"死亡时间记录为：不详":dateHint(death);
   $("#deathDateHint").classList.toggle("error",Boolean(death.error));
@@ -751,6 +754,7 @@ function formValuesForSnapshot(){
       return {text:input.value,color:document.querySelector(`.tag-color[data-tag-index="${index}"]`)?.value};
     }),
     birthDate:$("#personBirthDate").value,
+    birthUnknown:$("#personBirthUnknown").checked,
     deathDate:$("#personDeathDate").value,
     deathUnknown:$("#personDeathUnknown").checked,
     note:$("#personNote").value
@@ -770,7 +774,8 @@ function formatChangeValue(value){
   return value||"空";
 }
 function buildPersonProposal(p){
-  const birthInfo=parseFlexibleDate($("#personBirthDate").value);
+  const birthUnknown=$("#personBirthUnknown").checked;
+  const birthInfo=birthUnknown?{raw:"",calendar:"",solar:"",lunar:""}:parseFlexibleDate($("#personBirthDate").value);
   const deathUnknown=$("#personDeathUnknown").checked;
   const deathInfo=deathUnknown?{raw:"",calendar:"",solar:"",lunar:""}:parseFlexibleDate($("#personDeathDate").value);
   const tagData=collectTagData();
@@ -786,6 +791,7 @@ function buildPersonProposal(p){
     birthCalendar:birthInfo.calendar,
     birthSolar:birthInfo.solar,
     birthLunar:birthInfo.lunar,
+    birthUnknown,
     deathDate:deathInfo.raw,
     deathCalendar:deathInfo.calendar,
     deathSolar:deathInfo.solar,
@@ -804,7 +810,7 @@ async function submitPersonForm(options={}){
   if(!canModifyPerson(p.id)){await showAlert("当前账号没有此人物的编辑权限。");return false}
   const before={...p,tagItems:[...(p.tagItems||[])]};
   const proposed=buildPersonProposal(p);
-  const labels={name:"姓名",gender:"性别",generation:"世代",zi:"字辈",showZi:"字辈显示",tagMode:"标签模式",tagText:"标签",tagItems:"标签内容",tagColor:"标签颜色",birthDate:"出生时间",birthSolar:"出生阳历",birthLunar:"出生农历",deathDate:"死亡时间",deathSolar:"死亡阳历",deathLunar:"死亡农历",deathUnknown:"死亡日期不详",note:"备注"};
+  const labels={name:"姓名",gender:"性别",generation:"世代",zi:"字辈",showZi:"字辈显示",tagMode:"标签模式",tagText:"标签",tagItems:"标签内容",tagColor:"标签颜色",birthDate:"出生时间",birthSolar:"出生阳历",birthLunar:"出生农历",birthUnknown:"出生日期不详",deathDate:"死亡时间",deathSolar:"死亡阳历",deathLunar:"死亡农历",deathUnknown:"死亡日期不详",note:"备注"};
   const changes=summarizeChanges(before,proposed,labels);
   if(!changes.length){markPersonFormClean();return true}
   if(canEdit()){
@@ -859,7 +865,7 @@ async function openPerson(id){
   const canModify=canModifyPerson(id);
   $("#personId").value=p.id;$("#personName").value=p.name;$("#personGender").value=p.gender;
   $("#personGeneration").value=p.generation;$("#personZi").value=p.zi||"";$("#personShowZi").checked=p.showZi!==false;
-  setTagEditorItems(tagTextForForm(p));$("#personBirthDate").value=p.birthDate||"";$("#personDeathDate").value=p.deathDate||"";$("#personDeathUnknown").checked=Boolean(p.deathUnknown);$("#personDeathDate").disabled=Boolean(p.deathUnknown)||!canModify;$("#personNote").value=p.note||"";
+  setTagEditorItems(tagTextForForm(p));$("#personBirthDate").value=p.birthDate||"";$("#personBirthUnknown").checked=Boolean(p.birthUnknown);$("#personBirthDate").disabled=Boolean(p.birthUnknown)||!canModify;$("#personDeathDate").value=p.deathDate||"";$("#personDeathUnknown").checked=Boolean(p.deathUnknown);$("#personDeathDate").disabled=Boolean(p.deathUnknown)||!canModify;$("#personNote").value=p.note||"";
   $("#drawerTitle").textContent=p.name;
   const parents=data.parentLinks.filter(l=>l.child===id).map(l=>person(l.parent)?.name).filter(Boolean);
   const children=data.parentLinks.filter(l=>l.parent===id).map(l=>person(l.child)?.name).filter(Boolean);
@@ -870,10 +876,15 @@ async function openPerson(id){
     <div class="relation-list">父母：${esc(parents.join("、")||"未记录")}<br>配偶：${esc(spouses.join("、")||"未记录")}<br>子女：${esc(children.join("、")||"未记录")}</div>`;
   document.querySelectorAll("[data-rel]").forEach(b=>b.onclick=()=>openRelation(id,b.dataset.rel));
   $("#personForm").querySelectorAll("input,select,textarea").forEach(control=>control.disabled=!canModify);
+  $("#personForm .switch-row").hidden=!canModify;
+  $("#personForm .tag-editor").hidden=!canModify;
+  $("#personBirthDate").disabled=!canModify||$("#personBirthUnknown").checked;
   $("#personDeathDate").disabled=!canModify||$("#personDeathUnknown").checked;
   setTagEditorItems(tagTextForForm(p));
   updateDateHints();
-  $("#personForm").querySelector(".form-actions").hidden=!canModify;
+  $("#personForm").querySelector(".form-actions").hidden=false;
+  $("#deletePerson").disabled=!canModify;
+  $("#personForm button[type='submit']").disabled=!canModify;
   $("#deletePerson").textContent=canEdit()?"删除人物":"申请删除";
   $("#personForm button[type='submit']").textContent=canEdit()?"保存修改":"提交修改申请";
   $("#drawer").classList.toggle("readonly",!canModify);
@@ -934,6 +945,11 @@ $("#relationForm").onsubmit=async e=>{
 $("#deletePerson").onclick=async()=>{if(!requireAccount())return;const id=$("#personId").value,p=person(id);if(!p)return;if(!canModifyPerson(id)){await showAlert("当前账号没有此人物的删除申请权限。");return}if(!(await showConfirm(canEdit()?`确定删除“${p.name}”及其全部关系吗？`:`确定提交删除“${p.name}”的申请吗？`,"删除人物")))return;if(canEdit()){applyDeletePerson(id);addHistory("删除人物",p.name,"删除人物及其全部亲属关系");await save();await closeDrawer(true)}else{addRequest("deletePerson",p.name,id,{},"申请删除人物及其全部亲属关系");await closeDrawer(true);await showAlert("删除申请已提交，管理员审核通过后生效。")}};
 $("#addRoot").onclick=async()=>{if(!requireAccount())return;const newPerson=createPersonRecord({id:`p${Date.now()}`,name:"新族人",gender:"male",generation:1,zi:"启",showZi:true});if(canEdit()){data.people.push(newPerson);addHistory("新增人物","新族人","新增独立族人");await save();render();await openPerson(newPerson.id)}else{addRequest("addRoot","新族人","",newPerson,"申请新增独立族人");await showAlert("新增人物申请已提交，管理员审核通过后生效。")}};
 $("#closeDrawer").onclick=()=>closeDrawer();$("#modalBackdrop").onclick=()=>closeDrawer();
+$("#personBirthUnknown").onchange=()=>{
+  $("#personBirthDate").disabled=$("#personBirthUnknown").checked||!canModifyPerson(selectedId);
+  if($("#personBirthUnknown").checked)$("#personBirthDate").value="";
+  updateDateHints();
+};
 $("#personDeathUnknown").onchange=()=>{
   $("#personDeathDate").disabled=$("#personDeathUnknown").checked||!canModifyPerson(selectedId);
   if($("#personDeathUnknown").checked)$("#personDeathDate").value="";
