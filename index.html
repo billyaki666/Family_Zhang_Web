@@ -6,7 +6,7 @@
   <title>张氏族谱 · 世系图</title>
   <link rel="icon" href="assets/favicon.ico" sizes="any">
   <link rel="icon" type="image/png" href="assets/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=20260616-3">
+  <link rel="stylesheet" href="styles.css?v=20260616-5">
 </head>
 <body>
   <header class="topbar">
@@ -22,6 +22,7 @@
         <span>⌕</span>
         <input id="searchInput" placeholder="查找族人姓名">
       </label>
+      <button id="mobileMenuBtn" class="icon-btn mobile-menu-btn" type="button" aria-label="更多操作" aria-expanded="false">☰</button>
       <button id="zoomOut" class="icon-btn" title="缩小">−</button>
       <span id="zoomLabel">100%</span>
       <button id="zoomIn" class="icon-btn" title="放大">＋</button>
@@ -183,21 +184,27 @@
       <div><span class="eyebrow">操作审计</span><h2 id="historyTitle">申请与修改记录</h2></div>
       <button id="closeHistory" class="close-btn">×</button>
     </div>
+    <div class="history-tools">
+      <label>开始日期<input id="historyStartDate" type="date"></label>
+      <label>结束日期<input id="historyEndDate" type="date"></label>
+      <button id="historyFilterReset" class="ghost-btn" type="button">重置筛选</button>
+    </div>
     <h3 class="history-section-title">改动申请</h3>
     <div class="history-table-wrap request-table-wrap">
       <table class="history-table">
-        <thead><tr><th>提交时间</th><th>申请人</th><th>申请内容</th><th>状态</th><th>审核</th></tr></thead>
+        <thead><tr><th>提交时间</th><th>申请人</th><th>申请内容</th><th>状态</th><th>审核 / 操作</th></tr></thead>
         <tbody id="requestBody"></tbody>
       </table>
     </div>
+    <div id="requestPager" class="history-pager"></div>
     <h3 class="history-section-title">已生效的修改记录</h3>
     <div class="history-table-wrap">
       <table class="history-table">
-        <thead><tr><th>时间</th><th>操作者</th><th>操作</th><th>人物</th><th>修改内容</th></tr></thead>
+        <thead><tr><th>时间</th><th>操作者</th><th>操作</th><th>人物</th><th>修改内容</th><th>操作</th></tr></thead>
         <tbody id="historyBody"></tbody>
       </table>
     </div>
-    <button id="clearHistory" class="danger-btn">清空记录</button>
+    <div id="historyPager" class="history-pager"></div>
   </dialog>
 
   <dialog id="messageBoardDialog" class="message-board-dialog">
@@ -252,6 +259,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=20260616-3"></script>
+  <script src="app.js?v=20260616-5"></script>
 </body>
 </html>

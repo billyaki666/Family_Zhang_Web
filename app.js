@@ -96,7 +96,9 @@ let changeRequests = [];
 let announcements = [];
 let messageBoard = [];
 let currentUser = {username:"游客",role:"guest"};
-let scale=.72, panX=95, panY=50, selectedId=null, isPanning=false, spaceDown=false, start={}, personFormSnapshot="";
+let scale=.72, panX=95, panY=50, selectedId=null, isPanning=false, spaceDown=false, start={}, personFormSnapshot="", touchState=null;
+let requestPage=1, historyPage=1;
+const HISTORY_PAGE_SIZE=10;
 const $ = s => document.querySelector(s);
 const viewport=$("#viewport"), canvas=$("#canvas"), tree=$("#tree"), links=$("#links");
 const save = () => saveCloudState();
@@ -139,7 +141,7 @@ function fallbackState(){
 function applyState(state){
   data=normalizeDataSet(state?.data || initialData());
   users=normalizeUsers(state?.users || [], data);
-  historyRecords=Array.isArray(state?.historyRecords)?state.historyRecords:[];
+  historyRecords=Array.isArray(state?.historyRecords)?state.historyRecords.map((record,index)=>({...record,id:record.id||`h_legacy_${index}_${record.time||Date.now()}`})):[];
   changeRequests=Array.isArray(state?.changeRequests)?state.changeRequests:[];
   announcements=Array.isArray(state?.announcements)?state.announcements:[];
   messageBoard=Array.isArray(state?.messageBoard)?state.messageBoard:[];
@@ -238,6 +240,26 @@ function normalizeDataSet(source){
 function passwordHash(value){let hash=2166136261;for(const char of value){hash^=char.charCodeAt(0);hash=Math.imul(hash,16777619)}return (hash>>>0).toString(16)}
 function canEdit(){return currentUser.role==="admin"}
 function canPropose(){return currentUser.role==="admin"||currentUser.role==="member"}
+function editablePersonIdsForCurrentUser(){
+  if(canEdit())return new Set(data.people.map(p=>p.id));
+  if(currentUser.role!=="member"||!currentUser.personId)return new Set();
+  const editable=new Set([currentUser.personId]);
+  const spouses=data.unions
+    .filter(union=>union.partners.includes(currentUser.personId))
+    .flatMap(union=>union.partners.filter(id=>id!==currentUser.personId));
+  spouses.forEach(id=>editable.add(id));
+  [currentUser.personId,...spouses].forEach(parentId=>{
+    data.parentLinks.filter(link=>link.parent===parentId).forEach(link=>editable.add(link.child));
+  });
+  return editable;
+}
+function canModifyPerson(id){return editablePersonIdsForCurrentUser().has(id)}
+function canAddRelationForPerson(id,type){
+  if(canEdit())return true;
+  if(currentUser.role!=="member")return false;
+  if(id!==currentUser.personId)return false;
+  return type==="spouse"||type==="child";
+}
 function requireAccount(){if(canPropose())return true;setAuthTab("login");$("#authDialog").showModal();return false}
 function requireAdmin(){if(canEdit())return true;return false}
 function userLine(user=currentUser){
@@ -670,6 +692,29 @@ function renderRail(pos) {
 function toChinese(n){const a=["零","一","二","三","四","五","六","七","八","九"]; return n<10?a[n]:n===10?"十":n<20?"十"+a[n%10]:"二十";}
 function safeColor(value){return /^#[0-9a-f]{6}$/i.test(value||"")?value:"#8c2f25";}
 function applyTransform(){canvas.style.transform=`translate(${panX}px,${panY}px) scale(${scale})`;$("#zoomLabel").textContent=Math.round(scale*100)+"%"; const {pos}=layout();renderRail(pos);}
+function mobileView(){return window.matchMedia("(max-width: 800px)").matches}
+function resetViewState(){
+  if(mobileView()){scale=.46;panX=46;panY=32}
+  else{scale=.72;panX=95;panY=50}
+}
+function defaultFocusPersonId(){
+  if(currentUser.role==="member"&&currentUser.personId&&person(currentUser.personId))return currentUser.personId;
+  return data.people.find(p=>p.name==="启相公")?.id || data.people[0]?.id || "";
+}
+function focusPersonAtTop(id=defaultFocusPersonId()){
+  const target=person(id);
+  if(!target||!viewport)return;
+  const {pos}=layout();
+  const point=pos[id];
+  if(!point)return;
+  const topOffset=mobileView()?36:54;
+  panX=(viewport.clientWidth/2)-((point.x+point.width/2)*scale);
+  panY=topOffset-(point.y*scale);
+  applyTransform();
+}
+function scheduleFocusPersonAtTop(id=defaultFocusPersonId()){
+  requestAnimationFrame(()=>focusPersonAtTop(id));
+}
 function tagTextForForm(p){
   return p.tagItems?.length?p.tagItems:splitTagText(p.tagText).map(text=>({text,color:p.tagColor}));
 }
@@ -713,7 +758,7 @@ function formValuesForSnapshot(){
 }
 function markPersonFormClean(){personFormSnapshot=JSON.stringify(formValuesForSnapshot())}
 function personFormDirty(){
-  return canPropose()&&selectedId&&$("#drawer").classList.contains("open")&&personFormSnapshot&&JSON.stringify(formValuesForSnapshot())!==personFormSnapshot;
+  return canModifyPerson(selectedId)&&$("#drawer").classList.contains("open")&&personFormSnapshot&&JSON.stringify(formValuesForSnapshot())!==personFormSnapshot;
 }
 function summarizeChanges(before,proposed,labels){
   return Object.keys(labels).filter(key=>JSON.stringify(before[key]??"")!==JSON.stringify(proposed[key]??""))
@@ -756,6 +801,7 @@ async function submitPersonForm(options={}){
   if(!form.reportValidity())return false;
   const p=person($("#personId").value);
   if(!p)return false;
+  if(!canModifyPerson(p.id)){await showAlert("当前账号没有此人物的编辑权限。");return false}
   const before={...p,tagItems:[...(p.tagItems||[])]};
   const proposed=buildPersonProposal(p);
   const labels={name:"姓名",gender:"性别",generation:"世代",zi:"字辈",showZi:"字辈显示",tagMode:"标签模式",tagText:"标签",tagItems:"标签内容",tagColor:"标签颜色",birthDate:"出生时间",birthSolar:"出生阳历",birthLunar:"出生农历",deathDate:"死亡时间",deathSolar:"死亡阳历",deathLunar:"死亡农历",deathUnknown:"死亡日期不详",note:"备注"};
@@ -798,42 +844,45 @@ function setTagEditorItems(items=[]){
   document.querySelectorAll(".tag-text").forEach(input=>{
     const index=Number(input.dataset.tagIndex);
     input.value=items[index]?.text||"";
-    input.disabled=!canPropose();
+    input.disabled=!canModifyPerson($("#personId").value);
   });
   document.querySelectorAll(".tag-color").forEach(select=>{
     const index=Number(select.dataset.tagIndex);
     select.value=safeColor(items[index]?.color||"#8c2f25");
-    select.disabled=!canPropose();
+    select.disabled=!canModifyPerson($("#personId").value);
     paintTagColorSelect(select);
   });
 }
 async function openPerson(id){
   if(id!==selectedId&&!(await confirmUnsavedPersonForm()))return;
   selectedId=id; const p=person(id); if(!p)return;
+  const canModify=canModifyPerson(id);
   $("#personId").value=p.id;$("#personName").value=p.name;$("#personGender").value=p.gender;
   $("#personGeneration").value=p.generation;$("#personZi").value=p.zi||"";$("#personShowZi").checked=p.showZi!==false;
-  setTagEditorItems(tagTextForForm(p));$("#personBirthDate").value=p.birthDate||"";$("#personDeathDate").value=p.deathDate||"";$("#personDeathUnknown").checked=Boolean(p.deathUnknown);$("#personDeathDate").disabled=Boolean(p.deathUnknown)||!canPropose();$("#personNote").value=p.note||"";
+  setTagEditorItems(tagTextForForm(p));$("#personBirthDate").value=p.birthDate||"";$("#personDeathDate").value=p.deathDate||"";$("#personDeathUnknown").checked=Boolean(p.deathUnknown);$("#personDeathDate").disabled=Boolean(p.deathUnknown)||!canModify;$("#personNote").value=p.note||"";
   $("#drawerTitle").textContent=p.name;
   const parents=data.parentLinks.filter(l=>l.child===id).map(l=>person(l.parent)?.name).filter(Boolean);
   const children=data.parentLinks.filter(l=>l.parent===id).map(l=>person(l.child)?.name).filter(Boolean);
   const spouses=data.unions.filter(u=>u.partners.includes(id)).flatMap(u=>u.partners.filter(x=>x!==id)).map(x=>person(x)?.name).filter(Boolean);
-  $("#relationBox").innerHTML=`<h3>亲属关系</h3>${canPropose()?`<div class="relation-actions">
-    <button type="button" data-rel="parent">＋ 父母</button><button type="button" data-rel="spouse">＋ 配偶</button><button type="button" data-rel="child">＋ 子女</button></div>`:""}
+  const relationButtons=["parent","spouse","child"].filter(type=>canAddRelationForPerson(id,type));
+  $("#relationBox").innerHTML=`<h3>亲属关系</h3>${relationButtons.length?`<div class="relation-actions">
+    ${relationButtons.map(type=>`<button type="button" data-rel="${type}">＋ ${type==="parent"?"父母":type==="spouse"?"配偶":"子女"}</button>`).join("")}</div>`:""}
     <div class="relation-list">父母：${esc(parents.join("、")||"未记录")}<br>配偶：${esc(spouses.join("、")||"未记录")}<br>子女：${esc(children.join("、")||"未记录")}</div>`;
   document.querySelectorAll("[data-rel]").forEach(b=>b.onclick=()=>openRelation(id,b.dataset.rel));
-  $("#personForm").querySelectorAll("input,select,textarea").forEach(control=>control.disabled=!canPropose());
-  $("#personDeathDate").disabled=!canPropose()||$("#personDeathUnknown").checked;
+  $("#personForm").querySelectorAll("input,select,textarea").forEach(control=>control.disabled=!canModify);
+  $("#personDeathDate").disabled=!canModify||$("#personDeathUnknown").checked;
   setTagEditorItems(tagTextForForm(p));
   updateDateHints();
-  $("#personForm").querySelector(".form-actions").hidden=!canPropose();
+  $("#personForm").querySelector(".form-actions").hidden=!canModify;
   $("#deletePerson").textContent=canEdit()?"删除人物":"申请删除";
   $("#personForm button[type='submit']").textContent=canEdit()?"保存修改":"提交修改申请";
-  $("#drawer").classList.toggle("readonly",!canPropose());
+  $("#drawer").classList.toggle("readonly",!canModify);
   $("#drawer").classList.add("open");$("#modalBackdrop").classList.add("show");$("#drawer").setAttribute("aria-hidden","false");markPersonFormClean();render();
 }
 async function closeDrawer(force=false){if(!force&&!(await confirmUnsavedPersonForm()))return false;selectedId=null;personFormSnapshot="";$("#drawer").classList.remove("open");$("#modalBackdrop").classList.remove("show");$("#drawer").setAttribute("aria-hidden","true");render();return true;}
 function openRelation(id,type){
   if(!requireAccount())return;
+  if(!canAddRelationForPerson(id,type)){showAlert("当前账号只能为本人新增配偶或子女申请。");return}
   const base=person(id), labels={parent:"新增父母",spouse:"新增配偶",child:"新增子女"};
   $("#relationTitle").textContent=labels[type];$("#relationPersonId").value=id;$("#relationType").value=type;
   $("#relationName").value="";$("#relationNote").value="";
@@ -882,18 +931,18 @@ $("#relationForm").onsubmit=async e=>{
   if(canEdit()){applyRelationChange({baseId:base.id,type,newPerson});addHistory(type==="spouse"?"新增配偶":type==="parent"?"新增父母":"新增子女",newPerson.name,`与 ${base.name} 建立关系`);await save();$("#relationDialog").close();render();await openPerson(base.id)}
   else{addRequest("addRelation",newPerson.name,base.id,{baseId:base.id,type,newPerson},`申请与 ${base.name} 建立${type==="spouse"?"配偶":type==="parent"?"父母":"子女"}关系`);$("#relationDialog").close();await closeDrawer(true);await showAlert("亲属关系申请已提交，管理员审核通过后生效。")}
 };
-$("#deletePerson").onclick=async()=>{if(!requireAccount())return;const id=$("#personId").value,p=person(id);if(!p||!(await showConfirm(canEdit()?`确定删除“${p.name}”及其全部关系吗？`:`确定提交删除“${p.name}”的申请吗？`,"删除人物")))return;if(canEdit()){applyDeletePerson(id);addHistory("删除人物",p.name,"删除人物及其全部亲属关系");await save();await closeDrawer(true)}else{addRequest("deletePerson",p.name,id,{},"申请删除人物及其全部亲属关系");await closeDrawer(true);await showAlert("删除申请已提交，管理员审核通过后生效。")}};
+$("#deletePerson").onclick=async()=>{if(!requireAccount())return;const id=$("#personId").value,p=person(id);if(!p)return;if(!canModifyPerson(id)){await showAlert("当前账号没有此人物的删除申请权限。");return}if(!(await showConfirm(canEdit()?`确定删除“${p.name}”及其全部关系吗？`:`确定提交删除“${p.name}”的申请吗？`,"删除人物")))return;if(canEdit()){applyDeletePerson(id);addHistory("删除人物",p.name,"删除人物及其全部亲属关系");await save();await closeDrawer(true)}else{addRequest("deletePerson",p.name,id,{},"申请删除人物及其全部亲属关系");await closeDrawer(true);await showAlert("删除申请已提交，管理员审核通过后生效。")}};
 $("#addRoot").onclick=async()=>{if(!requireAccount())return;const newPerson=createPersonRecord({id:`p${Date.now()}`,name:"新族人",gender:"male",generation:1,zi:"启",showZi:true});if(canEdit()){data.people.push(newPerson);addHistory("新增人物","新族人","新增独立族人");await save();render();await openPerson(newPerson.id)}else{addRequest("addRoot","新族人","",newPerson,"申请新增独立族人");await showAlert("新增人物申请已提交，管理员审核通过后生效。")}};
 $("#closeDrawer").onclick=()=>closeDrawer();$("#modalBackdrop").onclick=()=>closeDrawer();
 $("#personDeathUnknown").onchange=()=>{
-  $("#personDeathDate").disabled=$("#personDeathUnknown").checked||!canPropose();
+  $("#personDeathDate").disabled=$("#personDeathUnknown").checked||!canModifyPerson(selectedId);
   if($("#personDeathUnknown").checked)$("#personDeathDate").value="";
   updateDateHints();
 };
 $("#personBirthDate").oninput=updateDateHints;
 $("#personDeathDate").oninput=updateDateHints;
 $("#zoomIn").onclick=()=>{scale=Math.min(1.5,scale+.1);applyTransform()};$("#zoomOut").onclick=()=>{scale=Math.max(.3,scale-.1);applyTransform()};
-$("#resetView").onclick=()=>{scale=.72;panX=95;panY=50;applyTransform()};
+$("#resetView").onclick=()=>{resetViewState();focusPersonAtTop()};
 $("#searchInput").oninput=e=>{const q=e.target.value.trim().toLowerCase();document.querySelectorAll(".person").forEach(el=>{const hit=!q||person(el.dataset.id).name.toLowerCase().includes(q);el.classList.toggle("search-dim",!!q&&!hit);el.classList.toggle("search-hit",!!q&&hit);});};
 viewport.addEventListener("wheel",e=>{e.preventDefault();const rect=viewport.getBoundingClientRect(),mx=e.clientX-rect.left,my=e.clientY-rect.top,old=scale;scale=Math.max(.28,Math.min(1.6,scale*(e.deltaY>0?.9:1.1)));panX=mx-(mx-panX)*(scale/old);panY=my-(my-panY)*(scale/old);applyTransform();},{passive:false});
 viewport.onmousedown=e=>{if(e.button===1||(e.button===0&&spaceDown)){e.preventDefault();isPanning=true;start={x:e.clientX,y:e.clientY,px:panX,py:panY};viewport.classList.add("panning");}};
@@ -901,6 +950,46 @@ window.onmousemove=e=>{if(isPanning){panX=start.px+e.clientX-start.x;panY=start.
 window.onmouseup=()=>{isPanning=false;viewport.classList.remove("panning")};
 window.onkeydown=e=>{if(e.code==="Space"&&!["INPUT","TEXTAREA","SELECT"].includes(document.activeElement.tagName)){e.preventDefault();spaceDown=true;viewport.classList.add("space-ready");}};
 window.onkeyup=e=>{if(e.code==="Space"){spaceDown=false;viewport.classList.remove("space-ready")}};
+function setupMobileMenu(){
+  const button=$("#mobileMenuBtn"), toolbar=document.querySelector(".toolbar");
+  if(!button||!toolbar)return;
+  const close=()=>{toolbar.classList.remove("menu-open");document.body.classList.remove("mobile-menu-open");button.setAttribute("aria-expanded","false")};
+  button.onclick=event=>{event.stopPropagation();const open=!toolbar.classList.contains("menu-open");toolbar.classList.toggle("menu-open",open);document.body.classList.toggle("mobile-menu-open",open);button.setAttribute("aria-expanded",String(open))};
+  toolbar.addEventListener("click",event=>{if(event.target.closest("button:not(#mobileMenuBtn)"))close()});
+  document.addEventListener("click",event=>{if(!toolbar.contains(event.target))close()});
+  window.addEventListener("resize",close);
+}
+function touchDistance(a,b){return Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY)}
+function touchCenter(a,b){return {x:(a.clientX+b.clientX)/2,y:(a.clientY+b.clientY)/2}}
+viewport.addEventListener("touchstart",event=>{
+  if(!mobileView()||event.target.closest(".person, button, input, select, textarea, dialog, .drawer"))return;
+  if(event.touches.length===1){
+    const touch=event.touches[0];
+    touchState={mode:"pan",x:touch.clientX,y:touch.clientY,px:panX,py:panY};
+  }else if(event.touches.length===2){
+    const [a,b]=event.touches, center=touchCenter(a,b);
+    touchState={mode:"pinch",distance:touchDistance(a,b),scale,panX,panY,cx:center.x,cy:center.y};
+  }
+},{passive:false});
+viewport.addEventListener("touchmove",event=>{
+  if(!touchState)return;
+  event.preventDefault();
+  if(touchState.mode==="pan"&&event.touches.length===1){
+    const touch=event.touches[0];
+    panX=touchState.px+touch.clientX-touchState.x;
+    panY=touchState.py+touch.clientY-touchState.y;
+    applyTransform();
+  }else if(touchState.mode==="pinch"&&event.touches.length===2){
+    const [a,b]=event.touches, rect=viewport.getBoundingClientRect(), center=touchCenter(a,b);
+    const old=touchState.scale, next=Math.max(.26,Math.min(1.6,touchState.scale*(touchDistance(a,b)/touchState.distance)));
+    const mx=center.x-rect.left, my=center.y-rect.top;
+    scale=next;
+    panX=mx-(touchState.cx-rect.left-touchState.panX)*(next/old);
+    panY=my-(touchState.cy-rect.top-touchState.panY)*(next/old);
+    applyTransform();
+  }
+},{passive:false});
+viewport.addEventListener("touchend",event=>{if(!event.touches?.length)touchState=null},{passive:true});
 function setAuthTab(mode){
   const registerMode=mode==="register";
   $("#loginForm").hidden=registerMode;
@@ -922,6 +1011,7 @@ $("#logoutBtn").onclick=async()=>{
   currentUser={username:"游客",role:"guest"};
   await closeDrawer(true);
   renderAuthState();
+  scheduleFocusPersonAtTop();
 };
 function setupRegisterOptions(){
   const generations=[...new Set(data.people.map(p=>p.generation))].sort((a,b)=>a-b);
@@ -940,6 +1030,7 @@ $("#loginForm").onsubmit=e=>{
   $("#authDialog").close();
   $("#loginForm").reset();
   renderAuthState();
+  scheduleFocusPersonAtTop();
 };
 $("#registerForm").onsubmit=async e=>{
   e.preventDefault();
@@ -960,22 +1051,51 @@ $("#registerForm").onsubmit=async e=>{
   $("#registerForm").reset();
   updateRegisterPersonOptions();
   renderAuthState();
+  scheduleFocusPersonAtTop();
 };
+function historyDateRange(){
+  const start=$("#historyStartDate")?.value;
+  const end=$("#historyEndDate")?.value;
+  const startTime=start?new Date(`${start}T00:00:00`).getTime():-Infinity;
+  const endTime=end?new Date(`${end}T23:59:59`).getTime():Infinity;
+  return {startTime,endTime};
+}
+function inHistoryDateRange(item){
+  const {startTime,endTime}=historyDateRange();
+  const time=new Date(item.time).getTime();
+  return time>=startTime&&time<=endTime;
+}
+function paginate(items,page){
+  const totalPages=Math.max(1,Math.ceil(items.length/HISTORY_PAGE_SIZE));
+  const safePage=Math.min(Math.max(1,page),totalPages);
+  return {items:items.slice((safePage-1)*HISTORY_PAGE_SIZE,safePage*HISTORY_PAGE_SIZE),page:safePage,totalPages};
+}
+function renderPager(id,page,totalPages,type){
+  const target=$(id);
+  if(!target)return;
+  target.innerHTML=totalPages>1?`<button class="ghost-btn" data-page="${type}" data-step="-1" ${page<=1?"disabled":""}>上一页</button><span>第 ${page} / ${totalPages} 页</span><button class="ghost-btn" data-page="${type}" data-step="1" ${page>=totalPages?"disabled":""}>下一页</button>`:"";
+}
 function renderHistory(){
-  const visibleRequests=canEdit()?changeRequests:changeRequests.filter(request=>request.user===currentUser.username);
+  const visibleRequests=(canEdit()?changeRequests:changeRequests.filter(request=>request.user===currentUser.username)).filter(inHistoryDateRange);
+  const visibleHistory=(canEdit()?historyRecords:historyRecords.filter(record=>record.user===currentUser.username)).filter(inHistoryDateRange);
+  const requestSlice=paginate(visibleRequests,requestPage);
+  const historySlice=paginate(visibleHistory,historyPage);
+  requestPage=requestSlice.page; historyPage=historySlice.page;
   $("#historyTitle").textContent=canEdit()?"申请审核与修改记录":"我的改动申请";
-  $("#requestBody").innerHTML=visibleRequests.length?visibleRequests.map(request=>`<tr>
+  $("#requestBody").innerHTML=requestSlice.items.length?requestSlice.items.map(request=>`<tr>
     <td>${esc(new Date(request.time).toLocaleString("zh-CN",{hour12:false}))}</td>
     <td>${esc(request.name)}${request.generation?` · 第${toChinese(+request.generation)}世`:""}</td>
     <td><strong>${esc(request.target)}</strong><br>${esc(request.detail)}</td>
     <td><span class="status-tag ${request.status}">${request.status==="pending"?"待审核":request.status==="approved"?"已通过":"已驳回"}</span></td>
-    <td>${canEdit()&&request.status==="pending"?`<span class="review-actions"><button class="primary-btn" data-review="approve" data-id="${request.id}">通过</button><button class="danger-btn" data-review="reject" data-id="${request.id}">驳回</button></span>`:"—"}</td>
+    <td><span class="review-actions">${canEdit()&&request.status==="pending"?`<button class="primary-btn" data-review="approve" data-id="${request.id}">通过</button><button class="danger-btn" data-review="reject" data-id="${request.id}">驳回</button>`:""}${canEdit()?`<button class="danger-btn" data-delete-request="${request.id}">删除</button>`:"—"}</span></td>
   </tr>`).join(""):`<tr><td colspan="5" class="history-empty">暂无改动申请</td></tr>`;
-  $("#historyBody").innerHTML=historyRecords.length?historyRecords.map(record=>`<tr>
+  $("#historyBody").innerHTML=historySlice.items.length?historySlice.items.map(record=>`<tr>
     <td>${esc(new Date(record.time).toLocaleString("zh-CN",{hour12:false}))}</td>
     <td>${esc(record.user)}</td><td>${esc(record.action)}</td><td>${esc(record.target)}</td><td>${esc(record.detail)}</td>
-  </tr>`).join(""):`<tr><td colspan="5" class="history-empty">暂无修改记录</td></tr>`;
-  $("#clearHistory").hidden=!canEdit();
+    <td>${canEdit()?`<button class="danger-btn" data-delete-history="${record.id}">删除</button>`:"—"}</td>
+  </tr>`).join(""):`<tr><td colspan="6" class="history-empty">暂无修改记录</td></tr>`;
+  renderPager("#requestPager",requestSlice.page,requestSlice.totalPages,"request");
+  renderPager("#historyPager",historySlice.page,historySlice.totalPages,"history");
   document.querySelectorAll("[data-review]").forEach(button=>button.onclick=async()=>{
     if(!canEdit())return;
     const request=changeRequests.find(item=>item.id===button.dataset.id);
@@ -993,15 +1113,29 @@ function renderHistory(){
     saveCloudState().catch(error=>console.error("保存审核结果失败",error));
     renderHistory();
   });
+  document.querySelectorAll("[data-delete-request]").forEach(button=>button.onclick=async()=>{
+    if(!canEdit()||!(await showConfirm("确定删除这条申请记录吗？","删除记录")))return;
+    changeRequests=changeRequests.filter(item=>item.id!==button.dataset.deleteRequest);
+    await saveCloudState();
+    renderHistory();
+  });
+  document.querySelectorAll("[data-delete-history]").forEach(button=>button.onclick=async()=>{
+    if(!canEdit()||!(await showConfirm("确定删除这条修改记录吗？","删除记录")))return;
+    historyRecords=historyRecords.filter(item=>item.id!==button.dataset.deleteHistory);
+    await saveCloudState();
+    renderHistory();
+  });
+  document.querySelectorAll("[data-page]").forEach(button=>button.onclick=()=>{
+    if(button.dataset.page==="request")requestPage+=Number(button.dataset.step);
+    else historyPage+=Number(button.dataset.step);
+    renderHistory();
+  });
 }
-$("#historyBtn").onclick=()=>{if(!requireAccount())return;renderHistory();$("#historyDialog").showModal()};
+$("#historyBtn").onclick=()=>{if(!requireAccount())return;requestPage=1;historyPage=1;renderHistory();$("#historyDialog").showModal()};
 $("#closeHistory").onclick=()=>$("#historyDialog").close();
-$("#clearHistory").onclick=async()=>{
-  if(!canEdit()||!(await showConfirm("确定清空全部修改记录吗？","清空记录")))return;
-  historyRecords=[];
-  saveCloudState().catch(error=>console.error("清空修改记录失败",error));
-  renderHistory();
-};
+$("#historyStartDate").onchange=()=>{requestPage=1;historyPage=1;renderHistory()};
+$("#historyEndDate").onchange=()=>{requestPage=1;historyPage=1;renderHistory()};
+$("#historyFilterReset").onclick=()=>{$("#historyStartDate").value="";$("#historyEndDate").value="";requestPage=1;historyPage=1;renderHistory()};
 function renderMessageBoard(){
   if(!canPropose())return;
   $("#messageBoardList").innerHTML=messageBoard.length?messageBoard.map(message=>`<article class="board-message">
@@ -1157,18 +1291,23 @@ window.addEventListener("beforeunload",event=>{
 });
 async function initializeApp(){
   setupTagEditor();
+  setupMobileMenu();
   await loadCloudState();
   setupRegisterOptions();
+  resetViewState();
   render();
   renderAuthState();
+  scheduleFocusPersonAtTop();
   renderAnnouncement();
 }
 initializeApp().catch(async error=>{
   console.error("应用初始化失败",error);
   applyState(fallbackState());
   setupRegisterOptions();
+  resetViewState();
   render();
   renderAuthState();
+  scheduleFocusPersonAtTop();
   renderAnnouncement();
   await showAlert("云端数据读取失败，已临时显示本地初始数据。请稍后刷新重试。");
 });
