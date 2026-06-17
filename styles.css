@@ -169,9 +169,10 @@ kbd { border: 1px solid #c8baa5; background: #fff; padding: 1px 5px; box-shadow:
 .drawer {
   position: fixed; z-index: 40; right: 0; top: 0; width: 390px; height: 100%; padding: 22px 26px;
   background: #f7f2e8; border-left: 1px solid #cfc0aa; transform: translateX(105%); transition: transform .25s ease;
-  box-shadow: -12px 0 35px rgba(48,34,20,.12); overflow-y: auto;
+  box-shadow: -12px 0 35px rgba(48,34,20,.12); overflow-x: hidden; overflow-y: auto;
 }
 .drawer.open { transform: translateX(0); }
+.drawer form { min-width: 0; }
 .backdrop { display: none; position: fixed; z-index: 30; inset: 0; background: rgba(39,31,22,.18); }
 .backdrop.show { display: block; }
 .drawer-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; min-height: 38px; }
@@ -190,8 +191,9 @@ input[readonly] { color: #766d60; background: #eee8dd; }
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 10px;
   align-items: center; margin: 2px 0 8px;
 }
+.date-options-row .unknown-date { min-height: 32px; margin-top: 0; }
 .date-calendar-switch {
-  display: grid; grid-template-columns: auto 86px; gap: 7px; align-items: center; margin: 0;
+  display: grid; grid-template-columns: auto 86px; gap: 7px; align-items: center; margin: 0; min-height: 32px;
   color: var(--muted); font-size: 12px;
 }
 .date-calendar-switch input { position: absolute; opacity: 0; pointer-events: none; }
@@ -439,6 +441,7 @@ dialog::backdrop { background: rgba(39,31,22,.35); }
   label { margin-bottom: 7px; font-size: 12px; }
   input, select, textarea { min-height: 40px; margin-top: 5px; padding: 8px 10px; font-size: 15px; }
   .date-options-row { grid-template-columns: 1fr 1fr auto; gap: 7px; margin: 1px 0 7px; }
+  .date-options-row .unknown-date { min-height: 30px; }
   .date-calendar-switch { grid-template-columns: 76px; gap: 3px; justify-items: end; font-size: 11px; }
   .date-calendar-switch > span { justify-self: start; }
   .date-calendar-switch i { width: 76px; height: 30px; }

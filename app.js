@@ -472,7 +472,8 @@ function formatStoredDate(p,type){
 function dateFieldDisplayValue(p,type){
   if(type==="birth"&&p.birthUnknown)return "出生不详";
   if(type==="death"&&p.deathUnknown)return "死亡不详";
-  return p[`${type}Date`]||"";
+  if(p[`${type}Calendar`]==="lunar"&&p[`${type}Solar`])return p[`${type}Solar`];
+  return p[`${type}Solar`]||p[`${type}Date`]||"";
 }
 function syncPersonFormPlaceholders(canModify){
   const datePlaceholder="如 1990 / 1990-05-21 / 农历1990年正月初一";
