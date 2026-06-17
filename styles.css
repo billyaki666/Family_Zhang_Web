@@ -97,6 +97,14 @@ button { cursor: pointer; }
 }
 .person.deceased .person-name { color: #5e584e; }
 .person:hover, .person.selected { border-color: var(--red); box-shadow: 0 6px 18px rgba(100,38,28,.15); z-index: 80; }
+.person.branch-draggable { cursor: grab; }
+.person.branch-draggable:active, .person.branch-dragging {
+  cursor: grabbing; opacity: .72; z-index: 90;
+}
+.person.branch-drop-target {
+  border-color: var(--red); z-index: 95;
+  box-shadow: 0 0 0 4px rgba(140,47,37,.16), 0 8px 24px rgba(100,38,28,.18);
+}
 .person.search-dim { opacity: .22; }
 .person.search-hit { border-color: var(--red); box-shadow: 0 0 0 3px rgba(140,47,37,.15); }
 .person-top { position: relative; height: 53px; display: flex; flex-direction: row-reverse; justify-content: space-between; align-items: flex-start; }

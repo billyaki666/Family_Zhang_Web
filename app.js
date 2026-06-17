@@ -97,6 +97,7 @@ let announcements = [];
 let messageBoard = [];
 let currentUser = {username:"游客",role:"guest"};
 let scale=.72, panX=95, panY=50, selectedId=null, isPanning=false, spaceDown=false, start={}, personFormSnapshot="", touchState=null;
+let branchDragState=null, branchDragSuppressClick=false;
 let requestPage=1, historyPage=1;
 const HISTORY_PAGE_SIZE=10;
 const $ = s => document.querySelector(s);
@@ -199,6 +200,7 @@ function createPersonRecord(values={}){
     tagText: values.tagText || "",
     tagItems: Array.isArray(values.tagItems) ? values.tagItems : [],
     tagColor: safeColor(values.tagColor),
+    branchOrder: values.branchOrder === undefined || values.branchOrder === null || values.branchOrder === "" ? null : Number(values.branchOrder),
     birthDate: values.birthDate || "",
     birthCalendar: values.birthCalendar || "",
     birthSolar: values.birthSolar || "",
@@ -661,15 +663,23 @@ function unitAnchor(unit, pos, edge) {
 function unitOrder(unit) {
   const links = unit.members.flatMap(id => data.parentLinks.filter(l => l.child === id));
   const parentNo = links.length ? Number(links[0].parent.replace(/\D/g,"")) : 0;
-  return parentNo * 10000 + Number(unit.id.replace(/\D/g,""));
+  const savedOrder=person(unit.bloodId)?.branchOrder;
+  const order=Number.isFinite(savedOrder)?savedOrder:Number(unit.id.replace(/\D/g,""));
+  return parentNo * 100000 + order;
 }
+function unitParentKey(unit){
+  return unit.members.flatMap(id=>data.parentLinks.filter(link=>link.child===id).map(link=>link.parent)).sort().join("|");
+}
+function canDragSortBranches(){return canEdit()&&!mobileView()}
+function canDragBranch(unit,p){return canDragSortBranches()&&unit&&p.id===unit.bloodId&&Boolean(unitParentKey(unit))}
 function render() {
   const {pos,unitByPerson,width,height}=layout();
   canvas.style.width=width+"px"; canvas.style.height=height+"px";
   links.setAttribute("width",width); links.setAttribute("height",height); links.setAttribute("viewBox",`0 0 ${width} ${height}`);
   tree.innerHTML=data.people.map(p=>{
     const q=pos[p.id], spouse=isSpouse(p.id), deceased=Boolean(p.deathDate||p.deathUnknown);
-    return `<article class="person ${p.gender} ${spouse?"spouse":""} ${deceased?"deceased":""} ${p.id===selectedId?"selected":""}" data-id="${p.id}" style="left:${q.x}px;top:${q.y}px">
+    const unit=unitByPerson[p.id], branchDraggable=canDragBranch(unit,p);
+    return `<article class="person ${p.gender} ${spouse?"spouse":""} ${deceased?"deceased":""} ${branchDraggable?"branch-draggable":""} ${p.id===selectedId?"selected":""}" data-id="${p.id}" ${branchDraggable?'draggable="true" title="拖动调整同级分支顺序"':""} style="left:${q.x}px;top:${q.y}px">
       <div class="person-top"><span class="person-name">${esc(p.name)}</span>${p.showZi!==false?`<span class="zi-badge">${esc(p.zi||"未")}</span>`:""}</div>
       ${renderPersonTags(p)}
       ${renderPersonTooltip(p)}
@@ -707,7 +717,8 @@ function render() {
   });
   links.innerHTML=svg;
   renderRail(pos); applyTransform();
-  document.querySelectorAll(".person").forEach(el=>el.onclick=()=>openPerson(el.dataset.id));
+  setupBranchDragSort(unitByPerson);
+  document.querySelectorAll(".person").forEach(el=>el.onclick=()=>{if(branchDragSuppressClick){branchDragSuppressClick=false;return}openPerson(el.dataset.id)});
 }
 function renderPersonTags(p){
   if(p.tagMode==="none")return "";
@@ -723,6 +734,64 @@ function renderPersonTooltip(p){
   if(death&&death!=="未填写")rows.push(`<div><b>死亡：</b>${esc(death)}</div>`);
   rows.push(`<div><b>生平：</b>${esc(p.note||"暂无备注")}</div>`);
   return rows.length?`<div class="person-tooltip">${rows.join("")}</div>`:"";
+}
+function sameSortableBranch(a,b){
+  if(!a||!b||a===b)return false;
+  const aKey=unitParentKey(a), bKey=unitParentKey(b);
+  return Boolean(aKey)&&aKey===bKey&&a.generation===b.generation;
+}
+async function swapBranchOrder(sourceUnit,targetUnit){
+  if(!sameSortableBranch(sourceUnit,targetUnit))return false;
+  const parentUnit=sourceUnit.parent||targetUnit.parent;
+  const siblings=(parentUnit?.children||[])
+    .filter(unit=>unitParentKey(unit)===unitParentKey(sourceUnit))
+    .sort((a,b)=>unitOrder(a)-unitOrder(b));
+  siblings.forEach((unit,index)=>{
+    const p=person(unit.bloodId);
+    if(p&&!Number.isFinite(p.branchOrder))p.branchOrder=(index+1)*10;
+  });
+  const source=person(sourceUnit.bloodId), target=person(targetUnit.bloodId);
+  if(!source||!target)return false;
+  const sourceOrder=source.branchOrder, targetOrder=target.branchOrder;
+  source.branchOrder=targetOrder;
+  target.branchOrder=sourceOrder;
+  addHistory("调整排序", `${source.name} / ${target.name}`, "拖拽调换同级分支顺序");
+  render();
+  save().catch(error=>console.error("保存分支排序失败",error));
+  return true;
+}
+function setupBranchDragSort(unitByPerson){
+  document.querySelectorAll(".branch-draggable").forEach(el=>{
+    el.ondragstart=event=>{
+      branchDragState={id:el.dataset.id};
+      el.classList.add("branch-dragging");
+      event.dataTransfer.effectAllowed="move";
+      event.dataTransfer.setData("text/plain",el.dataset.id);
+    };
+    el.ondragover=event=>{
+      const sourceUnit=unitByPerson[branchDragState?.id], targetUnit=unitByPerson[el.dataset.id];
+      if(sameSortableBranch(sourceUnit,targetUnit)){
+        event.preventDefault();
+        el.classList.add("branch-drop-target");
+      }
+    };
+    el.ondragleave=()=>el.classList.remove("branch-drop-target");
+    el.ondrop=async event=>{
+      event.preventDefault();
+      const sourceUnit=unitByPerson[branchDragState?.id], targetUnit=unitByPerson[el.dataset.id];
+      document.querySelectorAll(".branch-drop-target").forEach(item=>item.classList.remove("branch-drop-target"));
+      if(await swapBranchOrder(sourceUnit,targetUnit)){
+        branchDragSuppressClick=true;
+        setTimeout(()=>{branchDragSuppressClick=false},180);
+      }
+      branchDragState=null;
+    };
+    el.ondragend=()=>{
+      el.classList.remove("branch-dragging");
+      document.querySelectorAll(".branch-drop-target").forEach(item=>item.classList.remove("branch-drop-target"));
+      branchDragState=null;
+    };
+  });
 }
 function renderRail(pos) {
   const gens=[...new Set(data.people.map(p=>p.generation))].sort((a,b)=>a-b);
@@ -1093,6 +1162,7 @@ $("#loginForm").onsubmit=e=>{
   $("#authDialog").close();
   $("#loginForm").reset();
   renderAuthState();
+  render();
   scheduleFocusPersonAtTop();
 };
 $("#registerForm").onsubmit=async e=>{
@@ -1114,6 +1184,7 @@ $("#registerForm").onsubmit=async e=>{
   $("#registerForm").reset();
   updateRegisterPersonOptions();
   renderAuthState();
+  render();
   scheduleFocusPersonAtTop();
 };
 function historyDateRange(){
