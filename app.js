@@ -440,13 +440,25 @@ function parseFlexibleDate(value){
   }
   return {raw,calendar:"unknown",precision:"text",solar:"",lunar:"",error:"未识别日期格式"};
 }
-function dateHint(info){
+function parseDateByCalendar(value,calendar){
+  const raw=String(value||"").trim();
+  if(!raw)return {raw:"",calendar:"",precision:"",solar:"",lunar:""};
+  if(calendar==="lunar"){
+    const lunar=parseLunarInput(raw.includes("农历")?raw:`农历${raw}`);
+    return lunar || {raw,calendar:"lunar",precision:"text",solar:"",lunar:raw,error:"未识别农历日期格式"};
+  }
+  const parsed=parseFlexibleDate(raw);
+  return parsed.calendar==="lunar"?{...parsed,raw}:parsed;
+}
+function dateCalendarValue(){return $("#personDateCalendarToggle").checked?"lunar":"solar"}
+function setDateCalendarValue(value){$("#personDateCalendarToggle").checked=value==="lunar"}
+function dateHint(info,label="时间"){
   if(!info.raw)return "";
   if(info.error)return info.error;
-  if(info.calendar==="lunar")return `农历已换算：阳历 ${info.solar}`;
-  if(info.precision==="year")return `识别为年份：${info.solar}`;
-  if(info.precision==="month")return `识别为年月：${info.solar}`;
-  return `识别为阳历：${info.solar}`;
+  if(info.calendar==="lunar")return `${label}记录为：阳历 ${info.solar}`;
+  if(info.precision==="year")return `${label}记录为：${info.solar}`;
+  if(info.precision==="month")return `${label}记录为：${info.solar}`;
+  return `${label}记录为：阳历 ${info.solar}`;
 }
 function formatStoredDate(p,type){
   const raw=p[`${type}Date`]||"";
@@ -458,8 +470,8 @@ function formatStoredDate(p,type){
   return lunar&&solar?`${lunar}（阳历 ${solar}）`:raw;
 }
 function dateFieldDisplayValue(p,type){
-  if(type==="birth"&&p.birthUnknown)return "出生日期不详";
-  if(type==="death"&&p.deathUnknown)return "死亡日期不详";
+  if(type==="birth"&&p.birthUnknown)return "出生不详";
+  if(type==="death"&&p.deathUnknown)return "死亡不详";
   return p[`${type}Date`]||"";
 }
 function syncPersonFormPlaceholders(canModify){
@@ -744,12 +756,13 @@ function collectTagData(){
 }
 function updateDateHints(){
   const birthUnknown=$("#personBirthUnknown").checked;
-  const birth=birthUnknown?{raw:""}:parseFlexibleDate($("#personBirthDate").value);
+  const calendar=dateCalendarValue();
+  const birth=birthUnknown?{raw:""}:parseDateByCalendar($("#personBirthDate").value,calendar);
   const deathUnknown=$("#personDeathUnknown").checked;
-  const death=deathUnknown?{raw:""}:parseFlexibleDate($("#personDeathDate").value);
-  $("#birthDateHint").textContent=birthUnknown?"出生时间记录为：不详":dateHint(birth);
+  const death=deathUnknown?{raw:""}:parseDateByCalendar($("#personDeathDate").value,calendar);
+  $("#birthDateHint").textContent=birthUnknown?"出生时间记录为：不详":dateHint(birth,"出生时间");
   $("#birthDateHint").classList.toggle("error",Boolean(birth.error));
-  $("#deathDateHint").textContent=deathUnknown?"死亡时间记录为：不详":dateHint(death);
+  $("#deathDateHint").textContent=deathUnknown?"死亡时间记录为：不详":dateHint(death,"死亡时间");
   $("#deathDateHint").classList.toggle("error",Boolean(death.error));
 }
 function formValuesForSnapshot(){
@@ -764,8 +777,11 @@ function formValuesForSnapshot(){
       const index=input.dataset.tagIndex;
       return {text:input.value,color:document.querySelector(`.tag-color[data-tag-index="${index}"]`)?.value};
     }),
+    dateCalendar:dateCalendarValue(),
+    birthCalendar:dateCalendarValue(),
     birthDate:$("#personBirthDate").value,
     birthUnknown:$("#personBirthUnknown").checked,
+    deathCalendar:dateCalendarValue(),
     deathDate:$("#personDeathDate").value,
     deathUnknown:$("#personDeathUnknown").checked,
     note:$("#personNote").value
@@ -786,9 +802,10 @@ function formatChangeValue(value){
 }
 function buildPersonProposal(p){
   const birthUnknown=$("#personBirthUnknown").checked;
-  const birthInfo=birthUnknown?{raw:"",calendar:"",solar:"",lunar:""}:parseFlexibleDate($("#personBirthDate").value);
+  const calendar=dateCalendarValue();
+  const birthInfo=birthUnknown?{raw:"",calendar:"",solar:"",lunar:""}:parseDateByCalendar($("#personBirthDate").value,calendar);
   const deathUnknown=$("#personDeathUnknown").checked;
-  const deathInfo=deathUnknown?{raw:"",calendar:"",solar:"",lunar:""}:parseFlexibleDate($("#personDeathDate").value);
+  const deathInfo=deathUnknown?{raw:"",calendar:"",solar:"",lunar:""}:parseDateByCalendar($("#personDeathDate").value,calendar);
   const tagData=collectTagData();
   return {
     ...p,
@@ -821,7 +838,7 @@ async function submitPersonForm(options={}){
   if(!canModifyPerson(p.id)){await showAlert("当前账号没有此人物的编辑权限。");return false}
   const before={...p,tagItems:[...(p.tagItems||[])]};
   const proposed=buildPersonProposal(p);
-  const labels={name:"姓名",gender:"性别",generation:"世代",zi:"字辈",showZi:"字辈显示",tagMode:"标签模式",tagText:"标签",tagItems:"标签内容",tagColor:"标签颜色",birthDate:"出生时间",birthSolar:"出生阳历",birthLunar:"出生农历",birthUnknown:"出生日期不详",deathDate:"死亡时间",deathSolar:"死亡阳历",deathLunar:"死亡农历",deathUnknown:"死亡日期不详",note:"备注"};
+  const labels={name:"姓名",gender:"性别",generation:"世代",zi:"字辈",showZi:"字辈显示",tagMode:"标签模式",tagText:"标签",tagItems:"标签内容",tagColor:"标签颜色",birthDate:"出生时间",birthSolar:"出生阳历",birthLunar:"出生农历",birthUnknown:"出生不详",deathDate:"死亡时间",deathSolar:"死亡阳历",deathLunar:"死亡农历",deathUnknown:"死亡不详",note:"备注"};
   const changes=summarizeChanges(before,proposed,labels);
   if(!changes.length){markPersonFormClean();return true}
   if(canEdit()){
@@ -877,7 +894,8 @@ async function openPerson(id){
   $("#personId").value=p.id;$("#personName").value=p.name;$("#personGender").value=p.gender;
   $("#personGeneration").value=p.generation;$("#personZi").value=p.zi||"";$("#personShowZi").checked=p.showZi!==false;
   syncPersonFormPlaceholders(canModify);
-  setTagEditorItems(tagTextForForm(p));$("#personBirthDate").value=canModify?(p.birthDate||""):dateFieldDisplayValue(p,"birth");$("#personBirthUnknown").checked=Boolean(p.birthUnknown);$("#personBirthDate").disabled=Boolean(p.birthUnknown)||!canModify;$("#personDeathDate").value=canModify?(p.deathDate||""):dateFieldDisplayValue(p,"death");$("#personDeathUnknown").checked=Boolean(p.deathUnknown);$("#personDeathDate").disabled=Boolean(p.deathUnknown)||!canModify;$("#personNote").value=p.note||"";
+  const dateCalendar=p.birthCalendar==="lunar"||p.deathCalendar==="lunar"?"lunar":"solar";
+  setTagEditorItems(tagTextForForm(p));setDateCalendarValue(dateCalendar);$("#personDateCalendarToggle").disabled=!canModify;$("#personBirthDate").value=canModify?(p.birthDate||""):dateFieldDisplayValue(p,"birth");$("#personBirthUnknown").checked=Boolean(p.birthUnknown);$("#personBirthDate").disabled=Boolean(p.birthUnknown)||!canModify;$("#personDeathDate").value=canModify?(p.deathDate||""):dateFieldDisplayValue(p,"death");$("#personDeathUnknown").checked=Boolean(p.deathUnknown);$("#personDeathDate").disabled=Boolean(p.deathUnknown)||!canModify;$("#personNote").value=p.note||"";
   $("#drawerTitle").textContent="";
   const parents=data.parentLinks.filter(l=>l.child===id).map(l=>person(l.parent)?.name).filter(Boolean);
   const children=data.parentLinks.filter(l=>l.parent===id).map(l=>person(l.child)?.name).filter(Boolean);
@@ -890,7 +908,7 @@ async function openPerson(id){
   $("#personForm").querySelectorAll("input,select,textarea").forEach(control=>control.disabled=!canModify);
   $("#personForm .switch-row").hidden=!canModify;
   $("#personForm .tag-editor").hidden=!canModify;
-  document.querySelectorAll("#personForm .unknown-date").forEach(row=>row.hidden=!canModify);
+  $("#personForm .date-options-row").hidden=!canModify;
   document.querySelectorAll("#personForm .date-hint").forEach(row=>row.hidden=!canModify);
   $("#personBirthDate").disabled=!canModify||$("#personBirthUnknown").checked;
   $("#personDeathDate").disabled=!canModify||$("#personDeathUnknown").checked;
@@ -971,6 +989,7 @@ $("#personDeathUnknown").onchange=()=>{
 };
 $("#personBirthDate").oninput=updateDateHints;
 $("#personDeathDate").oninput=updateDateHints;
+$("#personDateCalendarToggle").onchange=updateDateHints;
 $("#zoomIn").onclick=()=>{scale=Math.min(1.5,scale+.1);applyTransform()};$("#zoomOut").onclick=()=>{scale=Math.max(.3,scale-.1);applyTransform()};
 $("#resetView").onclick=()=>{resetViewState();focusPersonAtTop()};
 $("#searchInput").oninput=e=>{const q=e.target.value.trim().toLowerCase();document.querySelectorAll(".person").forEach(el=>{const hit=!q||person(el.dataset.id).name.toLowerCase().includes(q);el.classList.toggle("search-dim",!!q&&!hit);el.classList.toggle("search-hit",!!q&&hit);});};

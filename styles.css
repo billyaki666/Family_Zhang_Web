@@ -186,6 +186,29 @@ input, select, textarea {
 }
 input:focus, select:focus, textarea:focus { border-color: var(--red); }
 input[readonly] { color: #766d60; background: #eee8dd; }
+.date-options-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 10px;
+  align-items: center; margin: 2px 0 8px;
+}
+.date-calendar-switch {
+  display: grid; grid-template-columns: auto 86px; gap: 7px; align-items: center; margin: 0;
+  color: var(--muted); font-size: 12px;
+}
+.date-calendar-switch input { position: absolute; opacity: 0; pointer-events: none; }
+.date-calendar-switch i {
+  position: relative; display: grid; grid-template-columns: 1fr 1fr; width: 86px; height: 32px; padding: 2px;
+  border: 1px solid #cfc2ad; background: rgba(255,255,255,.65); font-style: normal;
+}
+.date-calendar-switch i::before {
+  content: ""; position: absolute; z-index: 0; left: 2px; top: 2px; width: calc(50% - 2px); height: calc(100% - 4px);
+  background: var(--red); transition: transform .18s ease;
+}
+.date-calendar-switch input:checked + i::before { transform: translateX(100%); }
+.date-calendar-switch b {
+  position: relative; z-index: 1; display: grid; place-items: center; color: var(--muted); font-size: 12px; font-weight: 400;
+}
+.date-calendar-switch input:not(:checked) + i b:first-child,
+.date-calendar-switch input:checked + i b:last-child { color: #fff; }
 .switch-row { display: flex; align-items: center; justify-content: space-between; padding: 4px 0 10px; }
 .switch-row input { width: 17px; height: 17px; margin: 0; accent-color: var(--red); }
 .unknown-date { display: flex; align-items: center; gap: 7px; margin-top: 7px; color: var(--muted); font-size: 12px; }
@@ -415,6 +438,10 @@ dialog::backdrop { background: rgba(39,31,22,.35); }
   .close-btn { min-width: 44px; min-height: 44px; display: grid; place-items: center; font-size: 30px; }
   label { margin-bottom: 7px; font-size: 12px; }
   input, select, textarea { min-height: 40px; margin-top: 5px; padding: 8px 10px; font-size: 15px; }
+  .date-options-row { grid-template-columns: 1fr 1fr auto; gap: 7px; margin: 1px 0 7px; }
+  .date-calendar-switch { grid-template-columns: 76px; gap: 3px; justify-items: end; font-size: 11px; }
+  .date-calendar-switch > span { justify-self: start; }
+  .date-calendar-switch i { width: 76px; height: 30px; }
   textarea { min-height: 78px; }
   #personNote { min-height: 210px; line-height: 1.65; }
   .drawer.readonly #personNote { min-height: 330px; }

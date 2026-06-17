@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>张氏族谱 · 世系图</title>
+  <title>清河张氏 · 世系图</title>
   <link rel="icon" href="assets/favicon.ico" sizes="any">
   <link rel="icon" type="image/png" href="assets/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=20260616-16">
+  <link rel="stylesheet" href="styles.css?v=20260616-19">
 </head>
 <body>
   <header class="topbar">
@@ -14,7 +14,7 @@
       <div class="seal">张</div>
       <div>
         <p>慎终追远 · 敦亲睦族</p>
-        <h1>张氏族谱</h1>
+        <h1>清河张氏</h1>
       </div>
     </div>
     <div class="toolbar">
@@ -79,7 +79,7 @@
         <label>字辈<input id="personZi" maxlength="4" placeholder="如：源"></label>
       </div>
       <label class="switch-row">
-        <span>显示字辈标记</span>
+        <span>卡片显示字辈</span>
         <input id="personShowZi" type="checkbox">
       </label>
       <div class="tag-editor">
@@ -99,16 +99,23 @@
           </label>
         </div>
       </div>
-      <div class="form-row">
+      <div class="form-row date-row">
         <label>出生时间
           <input id="personBirthDate" type="text" placeholder="如 1990 / 1990-05-21 / 农历1990年正月初一">
-          <span class="unknown-date"><input id="personBirthUnknown" type="checkbox"> 出生日期不详</span>
           <small id="birthDateHint" class="date-hint"></small>
         </label>
         <label>死亡时间
           <input id="personDeathDate" type="text" placeholder="如 1990 / 1990-05-21 / 农历1990年正月初一">
-          <span class="unknown-date"><input id="personDeathUnknown" type="checkbox"> 死亡日期不详</span>
           <small id="deathDateHint" class="date-hint"></small>
+        </label>
+      </div>
+      <div class="date-options-row">
+        <span class="unknown-date"><input id="personBirthUnknown" type="checkbox"> 出生不详</span>
+        <span class="unknown-date"><input id="personDeathUnknown" type="checkbox"> 死亡不详</span>
+        <label class="date-calendar-switch">
+          <span>日期方法</span>
+          <input id="personDateCalendarToggle" type="checkbox" role="switch" aria-label="日期方法，关闭为阳历，开启为农历">
+          <i><b>阳历</b><b>农历</b></i>
         </label>
       </div>
       <label>生平备注<textarea id="personNote" rows="3" placeholder="生卒、排行、迁居等信息"></textarea></label>
@@ -258,6 +265,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=20260616-16"></script>
+  <script src="app.js?v=20260616-19"></script>
 </body>
 </html>
