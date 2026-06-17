@@ -416,6 +416,9 @@ function parseLunarInput(value){
   const dayToken=(dayTail.match(/^\d{1,2}/)||dayTail.match(/^(初[一二三四五六七八九十]|十[一二三四五六七八九]?|二十|廿[一二三四五六七八九]?|三十|卅)$/)||[])[0];
   const day=parseChineseNumber(dayToken||"");
   if(!day)return {raw:value,calendar:"lunar",precision:"text",solar:"",lunar:value,error:"农历日期缺少日期"};
+  if(year<1900||year>=1900+LUNAR_INFO.length){
+    return {raw:value,calendar:"lunar",precision:"day",solar:"",lunar:value,unsupported:true};
+  }
   const solar=lunarToSolar(year,month,day,Boolean(monthMatch[1]));
   return solar
     ? {raw:value,calendar:"lunar",precision:"day",solar,lunar:value}
@@ -455,6 +458,7 @@ function setDateCalendarValue(value){$("#personDateCalendarToggle").checked=valu
 function dateHint(info,label="时间"){
   if(!info.raw)return "";
   if(info.error)return info.error;
+  if(info.unsupported)return `${label}已记录为农历，暂不支持自动换算`;
   if(info.calendar==="lunar")return `${label}记录为：阳历 ${info.solar}`;
   if(info.precision==="year")return `${label}记录为：${info.solar}`;
   if(info.precision==="month")return `${label}记录为：${info.solar}`;
@@ -668,7 +672,7 @@ function render() {
     return `<article class="person ${p.gender} ${spouse?"spouse":""} ${deceased?"deceased":""} ${p.id===selectedId?"selected":""}" data-id="${p.id}" style="left:${q.x}px;top:${q.y}px">
       <div class="person-top"><span class="person-name">${esc(p.name)}</span>${p.showZi!==false?`<span class="zi-badge">${esc(p.zi||"未")}</span>`:""}</div>
       ${renderPersonTags(p)}
-      <div class="person-tooltip"><div><b>出生：</b>${esc(formatStoredDate(p,"birth"))}</div><div><b>死亡：</b>${esc(formatStoredDate(p,"death"))}</div><div><b>生平：</b>${esc(p.note||"暂无备注")}</div></div>
+      ${renderPersonTooltip(p)}
     </article>`;
   }).join("");
   let svg="";
@@ -710,6 +714,15 @@ function renderPersonTags(p){
   const items=(p.tagItems?.length?p.tagItems:[{text:p.tagText,color:p.tagColor}]).filter(item=>item?.text).slice(0,3);
   if(!items.length)return "";
   return `<div class="person-tags">${items.map(item=>`<span class="person-tag" style="background:${safeColor(item.color||p.tagColor)}">${esc(item.text)}</span>`).join("")}</div>`;
+}
+function renderPersonTooltip(p){
+  const rows=[];
+  const birth=formatStoredDate(p,"birth");
+  const death=formatStoredDate(p,"death");
+  if(birth&&birth!=="未填写")rows.push(`<div><b>出生：</b>${esc(birth)}</div>`);
+  if(death&&death!=="未填写")rows.push(`<div><b>死亡：</b>${esc(death)}</div>`);
+  rows.push(`<div><b>生平：</b>${esc(p.note||"暂无备注")}</div>`);
+  return rows.length?`<div class="person-tooltip">${rows.join("")}</div>`:"";
 }
 function renderRail(pos) {
   const gens=[...new Set(data.people.map(p=>p.generation))].sort((a,b)=>a-b);
