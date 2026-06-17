@@ -1004,10 +1004,10 @@ $("#personDeathUnknown").onchange=()=>{
 $("#personBirthDate").oninput=updateDateHints;
 $("#personDeathDate").oninput=updateDateHints;
 $("#personDateCalendarToggle").onchange=updateDateHints;
-$("#zoomIn").onclick=()=>{scale=Math.min(1.5,scale+.1);applyTransform()};$("#zoomOut").onclick=()=>{scale=Math.max(.3,scale-.1);applyTransform()};
+$("#zoomIn").onclick=()=>{scale=Math.min(2,scale+.1);applyTransform()};$("#zoomOut").onclick=()=>{scale=Math.max(.3,scale-.1);applyTransform()};
 $("#resetView").onclick=()=>{resetViewState();focusPersonAtTop()};
 $("#searchInput").oninput=e=>{const q=e.target.value.trim().toLowerCase();document.querySelectorAll(".person").forEach(el=>{const hit=!q||person(el.dataset.id).name.toLowerCase().includes(q);el.classList.toggle("search-dim",!!q&&!hit);el.classList.toggle("search-hit",!!q&&hit);});};
-viewport.addEventListener("wheel",e=>{e.preventDefault();const rect=viewport.getBoundingClientRect(),mx=e.clientX-rect.left,my=e.clientY-rect.top,old=scale;scale=Math.max(.28,Math.min(1.6,scale*(e.deltaY>0?.9:1.1)));panX=mx-(mx-panX)*(scale/old);panY=my-(my-panY)*(scale/old);applyTransform();},{passive:false});
+viewport.addEventListener("wheel",e=>{e.preventDefault();const rect=viewport.getBoundingClientRect(),mx=e.clientX-rect.left,my=e.clientY-rect.top,old=scale;scale=Math.max(.28,Math.min(2,scale*(e.deltaY>0?.9:1.1)));panX=mx-(mx-panX)*(scale/old);panY=my-(my-panY)*(scale/old);applyTransform();},{passive:false});
 viewport.onmousedown=e=>{if(e.button===1||(e.button===0&&spaceDown)){e.preventDefault();isPanning=true;start={x:e.clientX,y:e.clientY,px:panX,py:panY};viewport.classList.add("panning");}};
 window.onmousemove=e=>{if(isPanning){panX=start.px+e.clientX-start.x;panY=start.py+e.clientY-start.y;applyTransform();}};
 window.onmouseup=()=>{isPanning=false;viewport.classList.remove("panning")};
@@ -1044,7 +1044,7 @@ viewport.addEventListener("touchmove",event=>{
     applyTransform();
   }else if(touchState.mode==="pinch"&&event.touches.length===2){
     const [a,b]=event.touches, rect=viewport.getBoundingClientRect(), center=touchCenter(a,b);
-    const old=touchState.scale, next=Math.max(.26,Math.min(1.6,touchState.scale*(touchDistance(a,b)/touchState.distance)));
+    const old=touchState.scale, next=Math.max(.26,Math.min(2,touchState.scale*(touchDistance(a,b)/touchState.distance)));
     const mx=center.x-rect.left, my=center.y-rect.top;
     scale=next;
     panX=mx-(touchState.cx-rect.left-touchState.panX)*(next/old);
