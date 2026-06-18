@@ -357,6 +357,7 @@ const LUNAR_INFO=[
   0x0b5a0,0x056d0,0x055b2,0x049b0,0x0a577,0x0a4b0,0x0aa50,0x1b255,0x06d20,0x0ada0
 ];
 const LUNAR_MONTHS={正:1,一:1,二:2,三:3,四:4,五:5,六:6,七:7,八:8,九:9,十:10,冬:11,腊:12};
+const LUNAR_MONTH_NAMES=["","正","二","三","四","五","六","七","八","九","十","冬","腊"];
 function pad2(n){return String(n).padStart(2,"0")}
 function validSolar(year,month,day){
   const date=new Date(year,month-1,day);
@@ -365,6 +366,7 @@ function validSolar(year,month,day){
 function leapMonth(year){return LUNAR_INFO[year-1900]&0xf}
 function leapDays(year){return leapMonth(year)?((LUNAR_INFO[year-1900]&0x10000)?30:29):0}
 function monthDays(year,month){return (LUNAR_INFO[year-1900]&(0x10000>>month))?30:29}
+function lunarMonthText(month){return `${LUNAR_MONTH_NAMES[month]||month}月`}
 function lunarYearDays(year){
   let sum=348;
   for(let bit=0x8000;bit>0x8;bit>>=1)sum+=(LUNAR_INFO[year-1900]&bit)?1:0;
@@ -421,10 +423,15 @@ function parseLunarInput(value){
   if(year<1900||year>=1900+LUNAR_INFO.length){
     return {raw:value,calendar:"lunar",precision:"day",solar:"",lunar:value,unsupported:true};
   }
+  if(month<1||month>12)return {raw:value,calendar:"lunar",precision:"text",solar:"",lunar:value,error:"农历月份不存在"};
+  const leap=leapMonth(year);
+  const maxDay=Boolean(monthMatch[1])?leapDays(year):monthDays(year,month);
+  if(Boolean(monthMatch[1])&&leap!==month)return {raw:value,calendar:"lunar",precision:"text",solar:"",lunar:value,error:`${year}年没有闰${lunarMonthText(month)}`};
+  if(day>maxDay)return {raw:value,calendar:"lunar",precision:"text",solar:"",lunar:value,error:`${year}年农历${Boolean(monthMatch[1])?"闰":""}${lunarMonthText(month)}只有${maxDay}天`};
   const solar=lunarToSolar(year,month,day,Boolean(monthMatch[1]));
   return solar
     ? {raw:value,calendar:"lunar",precision:"day",solar,lunar:value}
-    : {raw:value,calendar:"lunar",precision:"text",solar:"",lunar:value,error:"农历日期超出范围或不存在"};
+    : {raw:value,calendar:"lunar",precision:"text",solar:"",lunar:value,error:"农历日期不存在"};
 }
 function parseFlexibleDate(value){
   const raw=String(value||"").trim();
@@ -460,7 +467,7 @@ function setDateCalendarValue(value){$("#personDateCalendarToggle").checked=valu
 function dateHint(info,label="时间"){
   if(!info.raw)return "";
   if(info.error)return info.error;
-  if(info.unsupported)return `${label}已记录为农历，暂不支持自动换算`;
+  if(info.unsupported)return `${label}农历换算暂支持1900-2049年`;
   if(info.calendar==="lunar")return `${label}记录为：阳历 ${info.solar}`;
   if(info.precision==="year")return `${label}记录为：${info.solar}`;
   if(info.precision==="month")return `${label}记录为：${info.solar}`;
@@ -670,6 +677,9 @@ function unitOrder(unit) {
 function unitParentKey(unit){
   return unit.members.flatMap(id=>data.parentLinks.filter(link=>link.child===id).map(link=>link.parent)).sort().join("|");
 }
+function unitParentIds(unit){
+  return [...new Set(unit.members.flatMap(id=>data.parentLinks.filter(link=>link.child===id).map(link=>link.parent)))].sort();
+}
 function canDragSortBranches(){return canEdit()&&!mobileView()}
 function canDragBranch(unit,p){return canDragSortBranches()&&unit&&p.id===unit.bloodId&&Boolean(unitParentKey(unit))}
 function render() {
@@ -740,22 +750,46 @@ function sameSortableBranch(a,b){
   const aKey=unitParentKey(a), bKey=unitParentKey(b);
   return Boolean(aKey)&&aKey===bKey&&a.generation===b.generation;
 }
-async function swapBranchOrder(sourceUnit,targetUnit){
-  if(!sameSortableBranch(sourceUnit,targetUnit))return false;
-  const parentUnit=sourceUnit.parent||targetUnit.parent;
+function branchContainsUnit(root,target){
+  const queue=[...(root?.children||[])], seen=new Set();
+  while(queue.length){
+    const unit=queue.shift();
+    if(!unit||seen.has(unit.id))continue;
+    if(unit===target)return true;
+    seen.add(unit.id);
+    queue.push(...(unit.children||[]));
+  }
+  return false;
+}
+function canSwapBranches(a,b){
+  return Boolean(a&&b&&a!==b&&unitParentKey(a)&&unitParentKey(b)&&a.generation===b.generation&&!branchContainsUnit(a,b)&&!branchContainsUnit(b,a));
+}
+function normalizeSiblingBranchOrders(parentUnit, childUnit){
+  const parentKey=unitParentKey(childUnit);
   const siblings=(parentUnit?.children||[])
-    .filter(unit=>unitParentKey(unit)===unitParentKey(sourceUnit))
+    .filter(unit=>unitParentKey(unit)===parentKey)
     .sort((a,b)=>unitOrder(a)-unitOrder(b));
   siblings.forEach((unit,index)=>{
     const p=person(unit.bloodId);
     if(p&&!Number.isFinite(p.branchOrder))p.branchOrder=(index+1)*10;
   });
+}
+async function swapBranchOrder(sourceUnit,targetUnit){
+  if(!canSwapBranches(sourceUnit,targetUnit))return false;
+  normalizeSiblingBranchOrders(sourceUnit.parent,sourceUnit);
+  if(sourceUnit.parent!==targetUnit.parent)normalizeSiblingBranchOrders(targetUnit.parent,targetUnit);
   const source=person(sourceUnit.bloodId), target=person(targetUnit.bloodId);
   if(!source||!target)return false;
   const sourceOrder=source.branchOrder, targetOrder=target.branchOrder;
   source.branchOrder=targetOrder;
   target.branchOrder=sourceOrder;
-  addHistory("调整排序", `${source.name} / ${target.name}`, "拖拽调换同级分支顺序");
+  if(!sameSortableBranch(sourceUnit,targetUnit)){
+    const sourceParents=unitParentIds(sourceUnit), targetParents=unitParentIds(targetUnit);
+    data.parentLinks=data.parentLinks.filter(link=>link.child!==sourceUnit.bloodId&&link.child!==targetUnit.bloodId);
+    targetParents.forEach(parent=>data.parentLinks.push({parent,child:sourceUnit.bloodId}));
+    sourceParents.forEach(parent=>data.parentLinks.push({parent,child:targetUnit.bloodId}));
+  }
+  addHistory("调整排序", `${source.name} / ${target.name}`, "拖拽调换同世代分支顺序");
   render();
   save().catch(error=>console.error("保存分支排序失败",error));
   return true;
@@ -770,7 +804,7 @@ function setupBranchDragSort(unitByPerson){
     };
     el.ondragover=event=>{
       const sourceUnit=unitByPerson[branchDragState?.id], targetUnit=unitByPerson[el.dataset.id];
-      if(sameSortableBranch(sourceUnit,targetUnit)){
+      if(canSwapBranches(sourceUnit,targetUnit)){
         event.preventDefault();
         el.classList.add("branch-drop-target");
       }
