@@ -201,6 +201,7 @@ function createPersonRecord(values={}){
     tagItems: Array.isArray(values.tagItems) ? values.tagItems : [],
     tagColor: safeColor(values.tagColor),
     branchOrder: values.branchOrder === undefined || values.branchOrder === null || values.branchOrder === "" ? null : Number(values.branchOrder),
+    displayMotherId: values.displayMotherId || "",
     birthDate: values.birthDate || "",
     birthCalendar: values.birthCalendar || "",
     birthSolar: values.birthSolar || "",
@@ -1004,6 +1005,66 @@ function setTagEditorItems(items=[]){
     paintTagColorSelect(select);
   });
 }
+function relatedSpouses(id){
+  return [...new Set(data.unions.filter(union=>union.partners.includes(id)).flatMap(union=>union.partners.filter(personId=>personId!==id)))]
+    .map(person)
+    .filter(Boolean);
+}
+function spouseFamilyMembers(id){
+  const base=person(id);
+  if(!base)return [];
+  const members=[], queue=[id], visited=new Set();
+  while(queue.length){
+    const currentId=queue.shift();
+    if(visited.has(currentId))continue;
+    visited.add(currentId);
+    if(currentId!==id)members.push(currentId);
+    data.unions.filter(union=>union.partners.includes(currentId)).forEach(union=>{
+      union.partners.forEach(partnerId=>{
+        if(!visited.has(partnerId)&&person(partnerId)?.generation===base.generation)queue.push(partnerId);
+      });
+    });
+  }
+  return members.map(person).filter(Boolean);
+}
+function parentDisplayInfo(child){
+  const directParents=[...new Set(data.parentLinks.filter(link=>link.child===child.id).map(link=>link.parent))]
+    .map(person)
+    .filter(Boolean);
+  const fathers=directParents.filter(parent=>parent.gender==="male");
+  const linkedMothers=directParents.filter(parent=>parent.gender==="female");
+  const spouseCandidates=fathers.flatMap(father=>spouseFamilyMembers(father.id));
+  const motherCandidates=[...new Map([...linkedMothers,...spouseCandidates].map(mother=>[mother.id,mother])).values()];
+  const selectedMother=motherCandidates.find(mother=>mother.id===child.displayMotherId)
+    || linkedMothers[0]
+    || (motherCandidates.length===1?motherCandidates[0]:null);
+  return {fathers,motherCandidates,selectedMother};
+}
+function renderRelationBox(id){
+  const p=person(id);
+  if(!p)return;
+  const {fathers,motherCandidates,selectedMother}=parentDisplayInfo(p);
+  const children=data.parentLinks.filter(link=>link.parent===id).map(link=>person(link.child)?.name).filter(Boolean);
+  const spouses=relatedSpouses(id).map(spouse=>spouse.name);
+  const relationButtons=["parent","spouse","child"].filter(type=>canAddRelationForPerson(id,type));
+  const motherSelector=canEdit()&&fathers.length?`<label class="mother-select-row"><span>展示母亲</span><select id="displayMotherSelect">
+    <option value="">${motherCandidates.length?"请选择母亲":"父亲暂无配偶"}</option>
+    ${motherCandidates.map(mother=>`<option value="${esc(mother.id)}" ${mother.id===(p.displayMotherId||selectedMother?.id)?"selected":""}>${esc(mother.name)}</option>`).join("")}
+  </select></label>`:"";
+  $("#relationBox").innerHTML=`<h3>亲属关系</h3>${relationButtons.length?`<div class="relation-actions">
+    ${relationButtons.map(type=>`<button type="button" data-rel="${type}">＋ ${type==="parent"?"父母":type==="spouse"?"配偶":"子女"}</button>`).join("")}</div>`:""}
+    <div class="relation-list"><span>父亲：${esc(fathers.map(father=>father.name).join("、")||"未记录")}　母亲：${esc(selectedMother?.name||"未记录")}</span><span>配偶：${esc(spouses.join("、")||"未记录")}</span><span class="relation-children">子女：${esc(children.join("、")||"未记录")}</span></div>
+    ${motherSelector}`;
+  document.querySelectorAll("[data-rel]").forEach(button=>button.onclick=()=>openRelation(id,button.dataset.rel));
+  const motherSelect=$("#displayMotherSelect");
+  if(motherSelect)motherSelect.onchange=()=>{
+    p.displayMotherId=motherSelect.value;
+    const mother=person(p.displayMotherId);
+    addHistory("设置母亲",p.name,`展示母亲：${mother?.name||"未指定"}`);
+    renderRelationBox(id);
+    save().catch(error=>console.error("保存母亲信息失败",error));
+  };
+}
 async function openPerson(id){
   if(id!==selectedId&&!(await confirmUnsavedPersonForm()))return;
   selectedId=id; const p=person(id); if(!p)return;
@@ -1014,14 +1075,7 @@ async function openPerson(id){
   const dateCalendar=p.birthCalendar==="lunar"||p.deathCalendar==="lunar"?"lunar":"solar";
   setTagEditorItems(tagTextForForm(p));setDateCalendarValue(dateCalendar);$("#personDateCalendarToggle").disabled=!canModify;$("#personBirthDate").value=canModify?(p.birthDate||""):dateFieldDisplayValue(p,"birth");$("#personBirthUnknown").checked=Boolean(p.birthUnknown);$("#personBirthDate").disabled=Boolean(p.birthUnknown)||!canModify;$("#personDeathDate").value=canModify?(p.deathDate||""):dateFieldDisplayValue(p,"death");$("#personDeathUnknown").checked=Boolean(p.deathUnknown);$("#personDeathDate").disabled=Boolean(p.deathUnknown)||!canModify;$("#personNote").value=p.note||"";
   $("#drawerTitle").textContent="";
-  const parents=data.parentLinks.filter(l=>l.child===id).map(l=>person(l.parent)?.name).filter(Boolean);
-  const children=data.parentLinks.filter(l=>l.parent===id).map(l=>person(l.child)?.name).filter(Boolean);
-  const spouses=data.unions.filter(u=>u.partners.includes(id)).flatMap(u=>u.partners.filter(x=>x!==id)).map(x=>person(x)?.name).filter(Boolean);
-  const relationButtons=["parent","spouse","child"].filter(type=>canAddRelationForPerson(id,type));
-  $("#relationBox").innerHTML=`<h3>亲属关系</h3>${relationButtons.length?`<div class="relation-actions">
-    ${relationButtons.map(type=>`<button type="button" data-rel="${type}">＋ ${type==="parent"?"父母":type==="spouse"?"配偶":"子女"}</button>`).join("")}</div>`:""}
-    <div class="relation-list"><span>父母：${esc(parents.join("、")||"未记录")}</span><span>配偶：${esc(spouses.join("、")||"未记录")}</span><span class="relation-children">子女：${esc(children.join("、")||"未记录")}</span></div>`;
-  document.querySelectorAll("[data-rel]").forEach(b=>b.onclick=()=>openRelation(id,b.dataset.rel));
+  renderRelationBox(id);
   $("#personForm").querySelectorAll("input,select,textarea").forEach(control=>control.disabled=!canModify);
   $("#personForm .switch-row").hidden=!canModify;
   $("#personForm .tag-editor").hidden=!canModify;

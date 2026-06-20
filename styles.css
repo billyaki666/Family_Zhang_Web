@@ -240,6 +240,11 @@ input[readonly] { color: #766d60; background: #eee8dd; }
 }
 .relation-list span { display: block; }
 .relation-list .relation-children { grid-column: 1 / -1; }
+.mother-select-row {
+  display: grid; grid-template-columns: 70px minmax(0, 1fr); align-items: center; gap: 8px;
+  margin: 7px 0 0; color: var(--muted); font-size: 12px;
+}
+.mother-select-row select { min-height: 34px; margin: 0; padding: 6px 9px; }
 .form-actions { display: flex; justify-content: space-between; }
 .danger-btn { color: var(--red); }
 button:disabled, input:disabled, select:disabled, textarea:disabled {
@@ -484,6 +489,7 @@ dialog::backdrop { background: rgba(39,31,22,.35); }
     display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-top: 8px; line-height: 1.7;
   }
   .relation-list .relation-children { grid-column: 1 / -1; }
+  .mother-select-row select { min-height: 40px; }
   .relation-actions { grid-template-columns: 1fr 1fr; }
   .relation-actions button { min-height: 42px; font-size: 13px; }
   .form-actions {
