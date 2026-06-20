@@ -1031,10 +1031,21 @@ function parentDisplayInfo(child){
   const directParents=[...new Set(data.parentLinks.filter(link=>link.child===child.id).map(link=>link.parent))]
     .map(person)
     .filter(Boolean);
-  const fathers=directParents.filter(parent=>parent.gender==="male");
+  const directFathers=directParents.filter(parent=>parent.gender==="male");
   const linkedMothers=directParents.filter(parent=>parent.gender==="female");
+  const inferredFatherCandidates=linkedMothers.flatMap(mother=>{
+    const family=spouseFamilyMembers(mother.id);
+    const men=family.filter(member=>member.gender==="male");
+    return men.length?men:family;
+  });
+  const fathers=directFathers.length
+    ? directFathers
+    : [...new Map(inferredFatherCandidates.map(father=>[father.id,father])).values()].slice(0,1);
   const spouseCandidates=fathers.flatMap(father=>spouseFamilyMembers(father.id));
-  const motherCandidates=[...new Map([...linkedMothers,...spouseCandidates].map(mother=>[mother.id,mother])).values()];
+  const fatherIds=new Set(fathers.map(father=>father.id));
+  const motherCandidates=[...new Map([...linkedMothers,...spouseCandidates]
+    .filter(mother=>!fatherIds.has(mother.id))
+    .map(mother=>[mother.id,mother])).values()];
   const selectedMother=motherCandidates.find(mother=>mother.id===child.displayMotherId)
     || linkedMothers[0]
     || (motherCandidates.length===1?motherCandidates[0]:null);
