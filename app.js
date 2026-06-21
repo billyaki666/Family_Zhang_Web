@@ -490,7 +490,6 @@ function renderAuthState(){
   $("#userBadge").classList.toggle("admin",admin);
   $("#authBtn").hidden=admin||member;
   $("#logoutBtn").hidden=!(admin||member);
-  $("#addRoot").hidden=!canPropose();
   $("#historyBtn").hidden=!(admin||member);
   $("#messageBoardBtn").hidden=!(admin||member);
   $("#historyBtn").textContent=admin?"审核与记录":"我的申请";
@@ -1155,7 +1154,6 @@ $("#relationForm").onsubmit=async e=>{
   else{addRequest("addRelation",newPerson.name,base.id,{baseId:base.id,type,newPerson},`申请与 ${base.name} 建立${type==="spouse"?"配偶":type==="parent"?"父母":"子女"}关系`);$("#relationDialog").close();await closeDrawer(true);await showAlert("亲属关系申请已提交，管理员审核通过后生效。")}
 };
 $("#deletePerson").onclick=async()=>{if(!requireAccount())return;const id=$("#personId").value,p=person(id);if(!p)return;if(!canModifyPerson(id)){await showAlert("当前账号没有此人物的删除申请权限。");return}if(!(await showConfirm(canEdit()?`确定删除“${p.name}”及其全部关系吗？`:`确定提交删除“${p.name}”的申请吗？`,"删除人物")))return;if(canEdit()){applyDeletePerson(id);addHistory("删除人物",p.name,"删除人物及其全部亲属关系");await save();await closeDrawer(true)}else{addRequest("deletePerson",p.name,id,{},"申请删除人物及其全部亲属关系");await closeDrawer(true);await showAlert("删除申请已提交，管理员审核通过后生效。")}};
-$("#addRoot").onclick=async()=>{if(!requireAccount())return;const newPerson=createPersonRecord({id:`p${Date.now()}`,name:"新族人",gender:"male",generation:1,zi:"启",showZi:true});if(canEdit()){data.people.push(newPerson);addHistory("新增人物","新族人","新增独立族人");await save();render();await openPerson(newPerson.id)}else{addRequest("addRoot","新族人","",newPerson,"申请新增独立族人");await showAlert("新增人物申请已提交，管理员审核通过后生效。")}};
 $("#closeDrawer").onclick=()=>closeDrawer();$("#modalBackdrop").onclick=()=>closeDrawer();
 $("#personBirthUnknown").onchange=()=>{
   $("#personBirthDate").disabled=$("#personBirthUnknown").checked||!canModifyPerson(selectedId);
