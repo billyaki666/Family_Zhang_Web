@@ -20,7 +20,7 @@ export async function onRequestPost(context) {
 
     const credentials=new Map((stored.users||[]).map(user=>[user.id||`${user.username}_${user.createdAt}`,user]));
     const incomingUsers=actor.role==="admin"?(body.state.users||[]):(stored.users||[]);
-    const users=incomingUsers.map(user=>{const old=credentials.get(user.id||`${user.username}_${user.createdAt}`)||{};return {...user,passwordHash:old.passwordHash,passwordSalt:old.passwordSalt,passwordDigest:old.passwordDigest}});
+    const users=incomingUsers.map(user=>{const old=credentials.get(user.id||`${user.username}_${user.createdAt}`)||{};return {...user,passwordHash:old.passwordHash,passwordSalt:old.passwordSalt,passwordDigest:old.passwordDigest,passwordIterations:old.passwordIterations}});
     await writeState(context.env.DB,{...body.state,users,sessions:stored.sessions||[]});
     return json({ ok: true });
   } catch (error) {
