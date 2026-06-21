@@ -6,9 +6,17 @@
   <title>清河张氏 · 世系图</title>
   <link rel="icon" href="assets/favicon.ico" sizes="any">
   <link rel="icon" type="image/png" href="assets/favicon.png">
-  <link rel="stylesheet" href="styles.css?v=20260620-04">
+  <link rel="stylesheet" href="styles.css?v=20260621-07">
 </head>
-<body>
+<body class="access-locked">
+  <main id="accessGate" class="access-gate">
+    <canvas id="accessWaveCanvas" class="access-wave-canvas" aria-hidden="true"></canvas>
+    <div class="access-gate-content">
+      <p>清河郡望 · 张氏宗谱</p>
+      <h1>清河张氏族谱</h1>
+      <button id="enterFamilyTree" class="access-enter" type="button">查看族谱</button>
+    </div>
+  </main>
   <header class="topbar">
     <div class="brand">
       <div class="seal">张</div>
@@ -158,31 +166,26 @@
     <div class="auth-panels">
       <form id="loginForm">
         <h3>登录</h3>
-        <label>账号<input id="loginUsername" autocomplete="username" required></label>
-        <label>密码<input id="loginPassword" type="password" autocomplete="current-password" required></label>
+        <label>登录账号（中文姓名或姓名全拼）<input id="loginUsername" autocomplete="username" placeholder="如 张必麟 或 zhangbilin" required></label>
+        <label>密码<div class="password-field"><input id="loginPassword" type="password" autocomplete="current-password" required><button class="password-toggle" type="button" data-password-toggle="loginPassword" aria-label="显示密码" title="显示密码"></button></div></label>
         <p id="loginMessage" class="form-message"></p>
         <button class="primary-btn wide" type="submit">登录</button>
       </form>
       <form id="registerForm">
         <h3>注册族人账号</h3>
-        <label>本人姓名（登录账号）<input id="registerName" minlength="2" placeholder="选择族谱人物后自动填入" readonly required></label>
+        <label>本人姓名（登录账号）<input id="registerName" minlength="2" maxlength="30" placeholder="如 张必麟 或 zhangbilin" required></label>
         <label>所属世代
           <select id="registerGeneration" required>
             <option value="">请选择世代</option>
           </select>
         </label>
-        <label>对应族谱人物
-          <select id="registerPerson" required>
-            <option value="">请先选择世代</option>
-          </select>
-        </label>
-        <label>密码<input id="registerPassword" type="password" minlength="6" required></label>
-        <label>确认密码<input id="registerConfirm" type="password" minlength="6" required></label>
+        <label>密码<div class="password-field"><input id="registerPassword" type="password" minlength="6" required><button class="password-toggle" type="button" data-password-toggle="registerPassword" aria-label="显示密码" title="显示密码"></button></div></label>
+        <label>确认密码<div class="password-field"><input id="registerConfirm" type="password" minlength="6" required><button class="password-toggle" type="button" data-password-toggle="registerConfirm" aria-label="显示密码" title="显示密码"></button></div></label>
         <p id="registerMessage" class="form-message"></p>
-        <button class="ghost-btn wide" type="submit">注册账号</button>
+        <button id="registerSubmit" class="ghost-btn wide" type="submit">注册账号</button>
       </form>
     </div>
-    <p class="auth-note">游客可直接浏览；族人账号可提交修改申请；维护管理员为张必麟,微信: timorgogogo，负责审核并维护族谱。</p>
+    <p class="auth-note">账号可填写中文姓名或姓名全拼。与族谱姓名、拼音和世代唯一匹配时自动通过；其他情况将提交管理员审核。</p>
   </dialog>
 
   <dialog id="historyDialog" class="history-dialog">
@@ -190,6 +193,11 @@
       <div><span class="eyebrow">操作审计</span><h2 id="historyTitle">申请与修改记录</h2></div>
       <button id="closeHistory" class="close-btn">×</button>
     </div>
+    <div id="historyTabs" class="history-tabs" role="tablist">
+      <button class="history-tab active" type="button" data-history-tab="changes">审核与记录</button>
+      <button class="history-tab" type="button" data-history-tab="members">会员管理</button>
+    </div>
+    <section id="historyChangesPanel">
     <div class="history-tools">
       <label>开始日期<input id="historyStartDate" type="date"></label>
       <label>结束日期<input id="historyEndDate" type="date"></label>
@@ -211,6 +219,23 @@
       </table>
     </div>
     <div id="historyPager" class="history-pager"></div>
+    </section>
+    <section id="memberManagementPanel" hidden>
+      <div class="member-tools"><input id="memberSearch" placeholder="搜索注册姓名"><select id="memberStatusFilter"><option value="">全部状态</option><option value="approved">已通过</option><option value="pending">待审核</option><option value="rejected">已拒绝</option></select></div>
+      <div class="history-table-wrap"><table class="history-table member-table"><thead><tr><th>注册时间</th><th>注册姓名</th><th>世代</th><th>绑定人物</th><th>状态</th><th>通过方式</th><th>密码</th><th>操作</th></tr></thead><tbody id="memberBody"></tbody></table></div>
+      <div id="memberPager" class="history-pager"></div>
+    </section>
+  </dialog>
+
+  <dialog id="memberBindDialog" class="member-bind-dialog">
+    <form id="memberBindForm">
+      <div class="drawer-head"><div><span class="eyebrow">会员审核</span><h2>绑定族谱人物</h2></div><button id="closeMemberBind" class="close-btn" type="button">×</button></div>
+      <input id="memberBindUsername" type="hidden">
+      <label>注册会员<input id="memberBindName" readonly></label>
+      <label>绑定人物<select id="memberBindPerson" required></select></label>
+      <p class="auth-note">仅显示第十四至第十六世族谱人物。已绑定人物会标记当前账号。</p>
+      <button class="primary-btn wide" type="submit">确认通过并绑定</button>
+    </form>
   </dialog>
 
   <dialog id="messageBoardDialog" class="message-board-dialog">
@@ -265,6 +290,6 @@
     </div>
   </dialog>
 
-  <script src="app.js?v=20260620-04"></script>
+  <script src="app.js?v=20260621-07"></script>
 </body>
 </html>

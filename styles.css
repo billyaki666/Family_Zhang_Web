@@ -34,6 +34,21 @@ button { cursor: pointer; }
   background: url("assets/favicon.png") center / contain no-repeat; border: 0; font-size: 0;
   box-shadow: none;
 }
+.access-gate {
+  position: fixed; inset: 0; z-index: 200; min-height: 100dvh; display: grid; place-items: center; overflow: hidden; isolation: isolate;
+  color: #fff; text-align: center; background: #201b16 url("assets/qinghe-poster-mobile.webp") center / cover no-repeat;
+}
+.access-gate::before { content:""; position:absolute; z-index:1; inset:0; background:rgba(20,16,12,.36); }
+.access-wave-canvas { position:absolute; z-index:2; inset:0; width:100%; height:100%; pointer-events:none; }
+.access-gate-content { position:relative; z-index:3; padding:24px; text-shadow:0 3px 18px rgba(0,0,0,.5); }
+.access-gate-content p { margin:0 0 12px; font-size:15px; letter-spacing:.28em; }
+.access-gate-content h1 { margin:0 0 34px; font-size:clamp(42px,7vw,88px); font-weight:500; letter-spacing:.14em; }
+.access-enter { min-width:156px; height:48px; border:1px solid rgba(255,255,255,.75); color:#fff; background:rgba(113,30,23,.88); font-size:16px; box-shadow:0 12px 32px rgba(0,0,0,.22); }
+.access-enter:hover { background:var(--red); }
+body.access-locked > :not(.access-gate):not(dialog) { visibility:hidden; }
+@media (min-width: 801px) {
+  .access-gate { background-image:url("assets/qinghe-poster-desktop.webp"); }
+}
 .brand h1 { margin: 1px 0 0; font-size: 23px; letter-spacing: .2em; font-weight: 600; }
 .brand p { margin: 0; color: var(--muted); font-size: 11px; letter-spacing: .25em; }
 .toolbar { display: flex; align-items: center; gap: 9px; height: 38px; }
@@ -271,9 +286,32 @@ dialog::backdrop { background: rgba(39,31,22,.35); }
 .auth-tab.active { color: #fff; background: var(--red); }
 .auth-panels h3 { margin: 0 0 18px; font-size: 16px; font-weight: 500; }
 .auth-panels form[hidden] { display: none; }
+.password-field { position:relative; }
+.password-field input { padding-right:46px; }
+.password-toggle {
+  position:absolute; right:1px; top:6px; width:40px; height:calc(100% - 7px); padding:0; border:0; border-left:1px solid #d8cbb7;
+  background:rgba(247,242,232,.72); color:var(--muted); display:grid; place-items:center;
+}
+.password-toggle::before {
+  content:""; width:19px; height:19px; background:currentColor;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.06 12.35a1 1 0 0 1 0-.7C3.72 7.6 7.6 5 12 5c4.4 0 8.28 2.6 9.94 6.65a1 1 0 0 1 0 .7C20.28 16.4 16.4 19 12 19c-4.4 0-8.28-2.6-9.94-6.65'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.06 12.35a1 1 0 0 1 0-.7C3.72 7.6 7.6 5 12 5c4.4 0 8.28 2.6 9.94 6.65a1 1 0 0 1 0 .7C20.28 16.4 16.4 19 12 19c-4.4 0-8.28-2.6-9.94-6.65'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E") center/contain no-repeat;
+}
+.password-toggle.visible::before {
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m2 2 20 20'/%3E%3Cpath d='M6.7 6.7C4.6 7.9 3 9.6 2.06 11.65a1 1 0 0 0 0 .7C3.72 16.4 7.6 19 12 19c1.5 0 2.94-.3 4.22-.84'/%3E%3Cpath d='M10.73 5.08C11.15 5.03 11.57 5 12 5c4.4 0 8.28 2.6 9.94 6.65a1 1 0 0 1 0 .7 11.5 11.5 0 0 1-2.1 3.18'/%3E%3Cpath d='M14.12 14.12A3 3 0 0 1 9.88 9.88'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m2 2 20 20'/%3E%3Cpath d='M6.7 6.7C4.6 7.9 3 9.6 2.06 11.65a1 1 0 0 0 0 .7C3.72 16.4 7.6 19 12 19c1.5 0 2.94-.3 4.22-.84'/%3E%3Cpath d='M10.73 5.08C11.15 5.03 11.57 5 12 5c4.4 0 8.28 2.6 9.94 6.65a1 1 0 0 1 0 .7 11.5 11.5 0 0 1-2.1 3.18'/%3E%3Cpath d='M14.12 14.12A3 3 0 0 1 9.88 9.88'/%3E%3C/svg%3E") center/contain no-repeat;
+}
+.form-message.success { color:#416458; }
+.form-message.pending { color:#8a631f; }
 .auth-note, .form-message { color: var(--muted); font-size: 11px; }
 .form-message { min-height: 16px; color: var(--red); }
 .history-dialog { width: min(960px, calc(100vw - 40px)); }
+.history-tabs { display:grid; grid-template-columns:1fr 1fr; margin:0 0 16px; border:1px solid #cdbfa9; }
+.history-tab { height:40px; border:0; background:transparent; color:var(--muted); }
+.history-tab.active { color:#fff; background:var(--red); }
+.member-tools { display:grid; grid-template-columns:1fr 180px; gap:10px; margin-bottom:12px; }
+.member-tools input,.member-tools select { margin:0; }
+.member-bind-dialog { width:min(480px,calc(100vw - 40px)); }
 .history-table-wrap { max-height: 60vh; overflow: auto; margin-bottom: 18px; border: 1px solid #d5c9b5; }
 .history-table { width: 100%; border-collapse: collapse; font-size: 12px; background: rgba(255,255,255,.45); }
 .history-table th, .history-table td { padding: 10px 12px; border-bottom: 1px solid #ddd1be; text-align: left; vertical-align: top; }
@@ -528,4 +566,10 @@ dialog::backdrop { background: rgba(39,31,22,.35); }
   .message-body { padding: 28px 22px 14px; }
   .message-actions { padding: 0 18px calc(20px + env(safe-area-inset-bottom)); }
   .message-actions button { flex: 1; min-width: 0; height: 44px; }
+  .access-gate { background-image:url("assets/qinghe-poster-mobile.webp"); background-position:center; }
+  .access-wave-canvas { display:none; }
+  .access-gate-content h1 { font-size:42px; line-height:1.25; }
+  .access-gate-content p { font-size:12px; }
+  .member-tools { grid-template-columns:1fr; }
+  .member-table { min-width:900px; }
 }

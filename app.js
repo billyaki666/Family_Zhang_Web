@@ -98,31 +98,34 @@ let messageBoard = [];
 let currentUser = {username:"游客",role:"guest"};
 let scale=.72, panX=95, panY=50, selectedId=null, isPanning=false, spaceDown=false, start={}, personFormSnapshot="", touchState=null;
 let branchDragState=null, branchDragSuppressClick=false;
-let requestPage=1, historyPage=1;
+let requestPage=1, historyPage=1, memberPage=1;
 const HISTORY_PAGE_SIZE=10;
 const $ = s => document.querySelector(s);
 const viewport=$("#viewport"), canvas=$("#canvas"), tree=$("#tree"), links=$("#links");
 const save = () => saveCloudState();
-const saveUsers = () => saveCloudState();
 const person = id => data.people.find(p=>p.id===id);
 const esc = s => String(s||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function readStorage(key,fallback){try{return JSON.parse(localStorage.getItem(key))||fallback}catch{return fallback}}
 function normalizeUsers(source=[], dataSet=data){
   const storedUsers=Array.isArray(source)?source:[];
+  const storedAdmin=storedUsers.find(user=>user.username==="admin123");
   const memberUsers=storedUsers
     .filter(user=>user.username&&user.username!=="admin123")
     .map(user=>{
       const linkedPerson=dataSet?.people?.find(item=>item.id===user.personId);
       return {
         ...user,
+        id:user.id||`member_${user.username}_${user.createdAt||"legacy"}`,
         name: linkedPerson?.name || user.name || user.username,
         generation: linkedPerson?.generation || user.generation || "",
         zi: linkedPerson?.zi || user.zi || "",
-        role:user.role==="admin"?"member":user.role
+        role:user.role==="admin"?"member":user.role,
+        status:user.status||"approved",
+        approvalMode:user.approvalMode||"legacy"
       };
     });
   return [
-    {username:"admin123",name:"管理员",generation:0,zi:"",passwordHash:passwordHash("admin123"),role:"admin",createdAt:"system"},
+    {...storedAdmin,id:storedAdmin?.id||"system_admin",username:"admin123",name:"管理员",generation:0,zi:"",role:"admin",status:"approved",approvalMode:"system",createdAt:storedAdmin?.createdAt||"system"},
     ...memberUsers
   ];
 }
@@ -146,7 +149,7 @@ function applyState(state){
   changeRequests=Array.isArray(state?.changeRequests)?state.changeRequests:[];
   announcements=Array.isArray(state?.announcements)?state.announcements:[];
   messageBoard=Array.isArray(state?.messageBoard)?state.messageBoard:[];
-  currentUser=users.find(user => user.username === localStorage.getItem(SESSION_KEY)) || {username:"游客",role:"guest"};
+  currentUser=users.find(user => user.username === localStorage.getItem(SESSION_KEY)&&user.status==="approved") || {username:"游客",role:"guest"};
 }
 function currentState(){
   return {data,users,historyRecords,changeRequests,announcements,messageBoard};
@@ -159,24 +162,17 @@ function normalizeAppState(source){
   throw new Error("数据格式不正确");
 }
 async function loadCloudState(){
-  try{
-    const response=await fetch(CLOUD_DATA_ENDPOINT,{cache:"no-store"});
-    if(!response.ok)throw new Error(`HTTP ${response.status}`);
-    const payload=await response.json();
-    if(payload.state){
-      applyState(payload.state);
-      return;
-    }
-  }catch(error){
-    console.warn("读取云端数据失败，使用本地初始化数据",error);
-  }
-  applyState(fallbackState());
-  await saveCloudState();
+  const response=await fetch(CLOUD_DATA_ENDPOINT,{cache:"no-store",credentials:"include"});
+  if(!response.ok)throw new Error(`HTTP ${response.status}`);
+  const payload=await response.json();
+  if(!payload.state)throw new Error("云端数据为空");
+  applyState(payload.state);
 }
 async function saveCloudState(){
   try{
     const response=await fetch(CLOUD_DATA_ENDPOINT,{
       method:"POST",
+      credentials:"include",
       headers:{"content-type":"application/json"},
       body:JSON.stringify({state:currentState()})
     });
@@ -241,7 +237,6 @@ function normalizeDataSet(source){
     parentLinks: input.parentLinks.map(item=>({parent:String(item.parent||""),child:String(item.child||"")})).filter(item=>item.parent&&item.child)
   };
 }
-function passwordHash(value){let hash=2166136261;for(const char of value){hash^=char.charCodeAt(0);hash=Math.imul(hash,16777619)}return (hash>>>0).toString(16)}
 function canEdit(){return currentUser.role==="admin"}
 function canPropose(){return currentUser.role==="admin"||currentUser.role==="member"}
 function editablePersonIdsForCurrentUser(){
@@ -281,27 +276,6 @@ function currentUserSnapshot(){
     personId: currentUser.personId || "",
     role: currentUser.role
   };
-}
-function personOptionLabel(p){
-  const zi=p.zi?` · ${p.zi}字辈`:"";
-  const note=p.note?` · ${p.note}`:"";
-  return `${p.name}${zi}${note}`;
-}
-function updateRegisterPersonOptions(){
-  const generation=+$("#registerGeneration").value;
-  const select=$("#registerPerson");
-  const registeredPersonIds=new Set(users.map(user=>user.personId).filter(Boolean));
-  const people=data.people
-    .filter(p=>p.generation===generation)
-    .sort((a,b)=>a.name.localeCompare(b.name,"zh-CN"));
-  select.innerHTML=generation
-    ? `<option value="">请选择对应人物</option>${people.map(p=>`<option value="${esc(p.id)}"${registeredPersonIds.has(p.id)?" disabled":""}>${esc(personOptionLabel(p))}${registeredPersonIds.has(p.id)?"（已注册）":""}</option>`).join("")}`
-    : `<option value="">请先选择世代</option>`;
-  $("#registerName").value="";
-}
-function syncRegisterNameFromPerson(){
-  const selected=person($("#registerPerson").value);
-  if(selected)$("#registerName").value=selected.name;
 }
 function showMessage(options={}){
   const dialog=$("#messageDialog");
@@ -520,6 +494,11 @@ function renderAuthState(){
   $("#historyBtn").textContent=admin?"审核与记录":"我的申请";
   $("#editAnnouncementBtn").hidden=!admin;
   $("#dataPortBtn").hidden=!admin;
+}
+function renderAccessState(){
+  const locked=currentUser.role==="guest";
+  document.body.classList.toggle("access-locked",locked);
+  $("#accessGate").hidden=!locked;
 }
 
 function layout() {
@@ -1221,6 +1200,71 @@ viewport.addEventListener("touchmove",event=>{
   }
 },{passive:false});
 viewport.addEventListener("touchend",event=>{if(!event.touches?.length)touchState=null},{passive:true});
+function setupAccessWaveCanvas(){
+  const gate=$("#accessGate"), canvas=$("#accessWaveCanvas"), ctx=canvas?.getContext("2d");
+  if(!gate||!canvas||!ctx)return;
+  const desktop=window.matchMedia("(min-width: 801px)");
+  let width=0,height=0,waves=[],lastTime=performance.now(),nextAutoWave=0;
+  function resize(){
+    const rect=gate.getBoundingClientRect(),ratio=Math.min(window.devicePixelRatio||1,2);
+    width=Math.max(1,rect.width);height=Math.max(1,rect.height);
+    canvas.width=Math.round(width*ratio);canvas.height=Math.round(height*ratio);
+    ctx.setTransform(ratio,0,0,ratio,0,0);
+  }
+  class AccessWave{
+    constructor(x,y,accent=false){this.x=x;this.y=y;this.radius=8;this.maxRadius=Math.max(260,Math.min(520,Math.max(width,height)*.34));this.alpha=.62;this.speed=44;this.accent=accent}
+    update(delta){this.radius+=this.speed*delta;this.alpha=Math.max(0,.62*(1-this.radius/this.maxRadius))}
+    draw(){
+      for(let ring=0;ring<3;ring++){
+        const radius=this.radius-ring*18;if(radius<=0)continue;
+        ctx.beginPath();ctx.ellipse(this.x,this.y,radius,radius*.34,0,0,Math.PI*2);
+        const alpha=this.alpha*(1-ring*.22);
+        ctx.strokeStyle=this.accent?`rgba(190,92,76,${alpha})`:`rgba(255,255,255,${alpha})`;
+        ctx.lineWidth=ring===0?1.8:1;ctx.stroke();
+      }
+    }
+  }
+  const addWave=(x,y,accent=false)=>waves.push(new AccessWave(x,y,accent));
+  gate.addEventListener("pointerdown",event=>{
+    if(!desktop.matches||event.target.closest("button"))return;
+    const rect=gate.getBoundingClientRect();addWave(event.clientX-rect.left,event.clientY-rect.top,true);
+  });
+  window.addEventListener("resize",resize,{passive:true});
+  desktop.addEventListener?.("change",()=>{waves=[];resize()});
+  resize();
+  function animate(now){
+    const active=desktop.matches&&!gate.hidden&&document.visibilityState==="visible";
+    const delta=Math.min(.05,(now-lastTime)/1000);lastTime=now;
+    ctx.clearRect(0,0,width,height);
+    if(active){
+      if(now>=nextAutoWave){addWave(width*(.12+Math.random()*.76),height*(.38+Math.random()*.52));nextAutoWave=now+1300+Math.random()*900}
+      for(let index=waves.length-1;index>=0;index--){const wave=waves[index];wave.update(delta);wave.draw();if(wave.alpha<=0)waves.splice(index,1)}
+    }else waves=[];
+    requestAnimationFrame(animate);
+  }
+  requestAnimationFrame(animate);
+}
+async function apiJson(url,options={}){
+  let response;
+  try{response=await fetch(url,{credentials:"include",...options})}
+  catch{throw new Error("网络连接失败，请检查网络后重试")}
+  const text=await response.text();
+  let result={};
+  try{result=text?JSON.parse(text):{}}
+  catch{throw new Error(`服务器响应异常（HTTP ${response.status}）`)}
+  if(!response.ok)throw new Error(result.error||`请求失败（HTTP ${response.status}）`);
+  return result;
+}
+function setAuthMessage(id,message,type=""){
+  const target=$(id);target.textContent=message;target.classList.toggle("success",type==="success");target.classList.toggle("pending",type==="pending");
+}
+function setupPasswordToggles(){
+  document.querySelectorAll("[data-password-toggle]").forEach(button=>button.onclick=()=>{
+    const input=$(`#${button.dataset.passwordToggle}`),visible=input.type==="text";
+    input.type=visible?"password":"text";button.classList.toggle("visible",!visible);
+    button.setAttribute("aria-label",visible?"显示密码":"隐藏密码");button.title=visible?"显示密码":"隐藏密码";
+  });
+}
 function setAuthTab(mode){
   const registerMode=mode==="register";
   $("#loginForm").hidden=registerMode;
@@ -1229,62 +1273,52 @@ function setAuthTab(mode){
   $("#registerTab").classList.toggle("active",registerMode);
   $("#loginTab").setAttribute("aria-selected",String(!registerMode));
   $("#registerTab").setAttribute("aria-selected",String(registerMode));
-  $("#loginMessage").textContent="";
-  $("#registerMessage").textContent="";
+  setAuthMessage("#loginMessage","");
+  setAuthMessage("#registerMessage","");
 }
 $("#authBtn").onclick=()=>{setAuthTab("login");$("#authDialog").showModal()};
+$("#enterFamilyTree").onclick=()=>{setAuthTab("login");$("#authDialog").showModal()};
 $("#loginTab").onclick=()=>setAuthTab("login");
 $("#registerTab").onclick=()=>setAuthTab("register");
 $("#closeAuth").onclick=()=>$("#authDialog").close();
 $("#logoutBtn").onclick=async()=>{
   if(!(await confirmUnsavedPersonForm()))return;
   localStorage.removeItem(SESSION_KEY);
+  fetch("/api/auth",{method:"POST",credentials:"include",headers:{"content-type":"application/json"},body:JSON.stringify({action:"logout"})}).catch(()=>{});
   currentUser={username:"游客",role:"guest"};
   await closeDrawer(true);
   renderAuthState();
+  renderAccessState();
   scheduleFocusPersonAtTop();
 };
 function setupRegisterOptions(){
-  const generations=[...new Set(data.people.map(p=>p.generation))].sort((a,b)=>a-b);
-  $("#registerGeneration").innerHTML=`<option value="">请选择世代</option>${generations.map(generation=>`<option value="${generation}">第${toChinese(generation)}世 [${ZI[generation]||"未定"}]</option>`).join("")}`;
-  updateRegisterPersonOptions();
+  $("#registerGeneration").innerHTML=`<option value="">请选择世代</option>${[14,15,16].map(generation=>`<option value="${generation}">第${toChinese(generation)}世 [${ZI[generation]||"未定"}]字辈</option>`).join("")}`;
 }
-$("#registerGeneration").onchange=updateRegisterPersonOptions;
-$("#registerPerson").onchange=syncRegisterNameFromPerson;
-$("#loginForm").onsubmit=e=>{
+$("#loginForm").onsubmit=async e=>{
   e.preventDefault();
-  const username=$("#loginUsername").value.trim();
-  const user=users.find(item=>item.username===username&&item.passwordHash===passwordHash($("#loginPassword").value));
-  if(!user){$("#loginMessage").textContent="账号或密码错误";return}
-  currentUser=user;
-  localStorage.setItem(SESSION_KEY,user.username);
-  $("#authDialog").close();
-  $("#loginForm").reset();
-  renderAuthState();
-  render();
-  scheduleFocusPersonAtTop();
+  const submit=e.submitter||$("#loginForm button[type='submit']"),original=submit.textContent;submit.disabled=true;submit.textContent="正在登录…";setAuthMessage("#loginMessage","正在验证账号…","pending");
+  try{
+    const username=$("#loginUsername").value.trim(),result=await apiJson("/api/auth",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"login",username,password:$("#loginPassword").value})});
+    localStorage.setItem(SESSION_KEY,result.user.username);await loadCloudState();
+    setAuthMessage("#loginMessage","登录成功，正在进入族谱…","success");$("#authDialog").close();$("#loginForm").reset();renderAuthState();renderAccessState();render();scheduleFocusPersonAtTop();await showAlert("登录成功，已进入族谱。","登录成功");
+  }catch(error){setAuthMessage("#loginMessage",error.message||"登录失败")}
+  finally{submit.disabled=false;submit.textContent=original}
 };
 $("#registerForm").onsubmit=async e=>{
   e.preventDefault();
-  const selectedPerson=person($("#registerPerson").value);
-  const name=selectedPerson?.name || $("#registerName").value.trim(),generation=+$("#registerGeneration").value,password=$("#registerPassword").value,confirmPassword=$("#registerConfirm").value;
-  if(!selectedPerson){$("#registerMessage").textContent="请选择对应的族谱人物";return}
-  if(selectedPerson.generation!==generation){$("#registerMessage").textContent="所选人物与世代不一致";return}
-  if(name==="admin123"){$("#registerMessage").textContent="该账号为系统管理员账号，不可注册";return}
-  if(users.some(user=>user.personId===selectedPerson.id)){$("#registerMessage").textContent="该族谱人物已注册账号";return}
-  if(users.some(user=>user.username===name)){$("#registerMessage").textContent="该姓名账号已存在";return}
-  if(password!==confirmPassword){$("#registerMessage").textContent="两次输入的密码不一致";return}
-  const user={username:name,name,generation,zi:selectedPerson.zi||"",personId:selectedPerson.id,passwordHash:passwordHash(password),role:"member",createdAt:new Date().toISOString()};
-  users.push(user);
-  await saveUsers();
-  currentUser=user;
-  localStorage.setItem(SESSION_KEY,user.username);
-  $("#authDialog").close();
-  $("#registerForm").reset();
-  updateRegisterPersonOptions();
-  renderAuthState();
-  render();
-  scheduleFocusPersonAtTop();
+  const name=$("#registerName").value.trim(),generation=+$("#registerGeneration").value,password=$("#registerPassword").value,confirmPassword=$("#registerConfirm").value;
+  if(![14,15,16].includes(generation)){setAuthMessage("#registerMessage","请选择第十四至第十六世");return}
+  if(name==="admin123"){setAuthMessage("#registerMessage","该账号为系统管理员账号，不可注册");return}
+  if(password!==confirmPassword){setAuthMessage("#registerMessage","两次输入的密码不一致");return}
+  const submit=e.submitter||$("#registerSubmit"),original=submit.textContent;submit.disabled=true;submit.textContent="正在注册…";setAuthMessage("#registerMessage","正在核对族谱姓名与世代…","pending");
+  try{
+    const result=await apiJson("/api/auth",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"register",name,generation,password})});
+    if(result.status==="approved"){
+      const loginResult=await apiJson("/api/auth",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"login",username:name,password})});
+      localStorage.setItem(SESSION_KEY,loginResult.user.username);await loadCloudState();setAuthMessage("#registerMessage","注册成功，正在自动登录…","success");$("#registerForm").reset();$("#authDialog").close();renderAuthState();renderAccessState();render();scheduleFocusPersonAtTop();await showAlert("注册成功并已自动登录，现已进入族谱。","注册成功");
+    }else{setAuthMessage("#registerMessage","注册申请已提交，正在等待管理员审核。审核通过后即可登录。","pending");$("#registerPassword").value="";$("#registerConfirm").value=""}
+  }catch(error){setAuthMessage("#registerMessage",error.message||"注册失败，请稍后重试")}
+  finally{submit.disabled=false;submit.textContent=original}
 };
 function historyDateRange(){
   const start=$("#historyStartDate")?.value;
@@ -1358,13 +1392,50 @@ function renderHistory(){
     await saveCloudState();
     renderHistory();
   });
-  document.querySelectorAll("[data-page]").forEach(button=>button.onclick=()=>{
+  document.querySelectorAll('[data-page="request"],[data-page="history"]').forEach(button=>button.onclick=()=>{
     if(button.dataset.page==="request")requestPage+=Number(button.dataset.step);
     else historyPage+=Number(button.dataset.step);
     renderHistory();
   });
 }
-$("#historyBtn").onclick=()=>{if(!requireAccount())return;requestPage=1;historyPage=1;renderHistory();$("#historyDialog").showModal()};
+function memberStatusText(status){return status==="approved"?"已通过":status==="pending"?"待审核":"已拒绝"}
+function renderMemberManagement(){
+  if(!canEdit())return;
+  const keyword=$("#memberSearch").value.trim().toLowerCase(), status=$("#memberStatusFilter").value;
+  const list=users.filter(user=>user.role==="member")
+    .filter(user=>(!keyword||`${user.name} ${user.username}`.toLowerCase().includes(keyword))&&(!status||user.status===status))
+    .sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
+  const page=paginate(list,memberPage);memberPage=page.page;
+  $("#memberBody").innerHTML=page.items.length?page.items.map(user=>{
+    const linked=person(user.personId);
+    return `<tr><td>${user.createdAt&&user.createdAt!=="system"?esc(new Date(user.createdAt).toLocaleString("zh-CN",{hour12:false})):"旧账号"}</td><td>${esc(user.username)}${user.name&&user.name!==user.username?`<br><small>${esc(user.name)}</small>`:""}</td><td>${user.generation?`第${toChinese(+user.generation)}世`:"—"}</td><td>${esc(linked?.name||"未绑定")}</td><td><span class="status-tag ${user.status}">${memberStatusText(user.status)}</span></td><td>${user.approvalMode==="auto"?"自动通过":user.approvalMode==="manual"?"人工通过":"旧会员"}</td><td>已设置</td><td><span class="review-actions">${user.status==="pending"?`<button class="primary-btn" data-member-bind="${esc(user.id)}">通过并绑定</button><button class="danger-btn" data-member-reject="${esc(user.id)}">拒绝</button>`:`<button class="ghost-btn" data-member-bind="${esc(user.id)}">切换绑定</button><button class="ghost-btn" data-member-reset="${esc(user.id)}">重置密码</button>`}<button class="danger-btn" data-member-delete="${esc(user.id)}">删除</button></span></td></tr>`;
+  }).join(""):`<tr><td colspan="8" class="history-empty">暂无会员记录</td></tr>`;
+  renderPager("#memberPager",page.page,page.totalPages,"member");
+  document.querySelectorAll("[data-member-bind]").forEach(button=>button.onclick=()=>openMemberBind(button.dataset.memberBind));
+  document.querySelectorAll("[data-member-reject]").forEach(button=>button.onclick=async()=>{const user=users.find(item=>item.id===button.dataset.memberReject);if(!user)return;user.status="rejected";user.reviewedAt=new Date().toISOString();user.reviewer=currentUser.username;addHistory("拒绝注册",user.name,"管理员拒绝注册申请");await save();renderMemberManagement()});
+  document.querySelectorAll("[data-member-delete]").forEach(button=>button.onclick=async()=>{const user=users.find(item=>item.id===button.dataset.memberDelete);if(!user||!(await showConfirm(`确定删除会员“${user.name}”吗？族谱人物不会删除。`,"删除会员")))return;users=users.filter(item=>item.id!==user.id);addHistory("删除会员",user.name,`解除绑定：${person(user.personId)?.name||"未绑定"}`);await save();renderMemberManagement()});
+  document.querySelectorAll("[data-member-reset]").forEach(button=>button.onclick=async()=>{const user=users.find(item=>item.id===button.dataset.memberReset);if(!user||!(await showConfirm(`为“${user.name}”生成临时密码吗？原密码将立即失效。`,"重置密码")))return;const response=await fetch("/api/auth",{method:"POST",credentials:"include",headers:{"content-type":"application/json"},body:JSON.stringify({action:"resetPassword",memberId:user.id})}),result=await response.json();if(!response.ok){await showAlert(result.error||"重置失败");return}addHistory("重置密码",user.name,"管理员生成临时密码");await showAlert(`临时密码：${result.temporaryPassword}\n请立即交给会员并提醒其妥善保管。`,"密码已重置")});
+  document.querySelectorAll('[data-page="member"]').forEach(button=>button.onclick=()=>{memberPage+=Number(button.dataset.step);renderMemberManagement()});
+}
+function openMemberBind(memberId){
+  const user=users.find(item=>item.id===memberId);if(!user)return;
+  $("#memberBindUsername").value=user.id;$("#memberBindName").value=`${user.name} · 第${toChinese(+user.generation)}世`;
+  const occupied=new Map(users.filter(item=>item.role==="member"&&item.status==="approved"&&item.personId&&item.id!==user.id).map(item=>[item.personId,item.name]));
+  const candidates=data.people.filter(p=>[14,15,16].includes(p.generation)).sort((a,b)=>a.generation-b.generation||a.name.localeCompare(b.name,"zh-CN"));
+  $("#memberBindPerson").innerHTML=`<option value="">请选择族谱人物</option>${candidates.map(p=>`<option value="${esc(p.id)}" ${p.id===user.personId?"selected":""} ${occupied.has(p.id)?"disabled":""}>第${toChinese(p.generation)}世 · ${esc(p.name)}${occupied.has(p.id)?`（已绑定 ${esc(occupied.get(p.id))}）`:""}</option>`).join("")}`;
+  $("#memberBindDialog").showModal();
+}
+document.querySelectorAll("[data-history-tab]").forEach(button=>button.onclick=()=>{
+  const members=button.dataset.historyTab==="members";
+  document.querySelectorAll("[data-history-tab]").forEach(tab=>tab.classList.toggle("active",tab===button));
+  $("#historyChangesPanel").hidden=members;$("#memberManagementPanel").hidden=!members;
+  if(members)renderMemberManagement();
+});
+$("#memberSearch").oninput=()=>{memberPage=1;renderMemberManagement()};
+$("#memberStatusFilter").onchange=()=>{memberPage=1;renderMemberManagement()};
+$("#closeMemberBind").onclick=()=>$("#memberBindDialog").close();
+$("#memberBindForm").onsubmit=async event=>{event.preventDefault();const user=users.find(item=>item.id===$("#memberBindUsername").value),target=person($("#memberBindPerson").value);if(!user||!target)return;if(users.some(item=>item.id!==user.id&&item.status==="approved"&&item.username===user.username)){await showAlert("同名账号已存在，不能同时启用两个相同登录账号。");return}if(users.some(item=>item.id!==user.id&&item.status==="approved"&&item.personId===target.id)){await showAlert("该人物已经绑定其他会员。");return}user.personId=target.id;user.name=target.name;user.generation=target.generation;user.zi=target.zi||"";user.status="approved";user.approvalMode="manual";user.reviewedAt=new Date().toISOString();user.reviewer=currentUser.username;addHistory("会员绑定",user.name,`绑定人物：${target.name}`);await save();$("#memberBindDialog").close();renderMemberManagement()};
+$("#historyBtn").onclick=()=>{if(!requireAccount())return;requestPage=1;historyPage=1;memberPage=1;renderHistory();$("#historyTabs").hidden=!canEdit();$("#historyChangesPanel").hidden=false;$("#memberManagementPanel").hidden=true;document.querySelectorAll("[data-history-tab]").forEach((tab,index)=>tab.classList.toggle("active",index===0));$("#historyDialog").showModal()};
 $("#closeHistory").onclick=()=>$("#historyDialog").close();
 $("#historyStartDate").onchange=()=>{requestPage=1;historyPage=1;renderHistory()};
 $("#historyEndDate").onchange=()=>{requestPage=1;historyPage=1;renderHistory()};
@@ -1525,21 +1596,28 @@ window.addEventListener("beforeunload",event=>{
 async function initializeApp(){
   setupTagEditor();
   setupMobileMenu();
-  await loadCloudState();
+  setupAccessWaveCanvas();
+  setupPasswordToggles();
+  const sessionResponse=await fetch("/api/auth",{cache:"no-store",credentials:"include"}).catch(()=>null),session=sessionResponse?.ok?await sessionResponse.json():{user:null};
+  if(session.user){localStorage.setItem(SESSION_KEY,session.user.username);await loadCloudState()}else{localStorage.removeItem(SESSION_KEY);applyState(fallbackState());currentUser={username:"游客",role:"guest"}}
   setupRegisterOptions();
   resetViewState();
   render();
   renderAuthState();
+  renderAccessState();
   scheduleFocusPersonAtTop();
   renderAnnouncement();
 }
 initializeApp().catch(async error=>{
   console.error("应用初始化失败",error);
+  localStorage.removeItem(SESSION_KEY);
   applyState(fallbackState());
+  currentUser={username:"游客",role:"guest"};
   setupRegisterOptions();
   resetViewState();
   render();
   renderAuthState();
+  renderAccessState();
   scheduleFocusPersonAtTop();
   renderAnnouncement();
   await showAlert("云端数据读取失败，已临时显示本地初始数据。请稍后刷新重试。");
