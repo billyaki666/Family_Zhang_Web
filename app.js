@@ -1067,7 +1067,8 @@ function renderRelationBox(id){
     ["配偶",actualSpouse||p.manualSpouseName,"personSpouseName","manualSpouseName","手动填写",30],
     ["子女",actualChildren||p.manualChildrenNames,"personChildrenNames","manualChildrenNames","多个姓名用顿号分隔",100]
   ];
-  const relationRows=relations.map(([label,value])=>value||canModify?`<span class="${label==="子女"?"relation-children":""}">${label}：${esc(value||"未记录")}</span>`:"").join("");
+  const relationClass={父亲:"father",母亲:"mother",配偶:"spouse",子女:"children"};
+  const relationRows=relations.map(([label,value])=>value||canModify?`<span class="relation-item relation-${relationClass[label]}" title="${esc(value||"未记录")}">${label}：${esc(value||"未记录")}</span>`:"").join("");
   const actualValues=[actualFather,actualMother,actualSpouse,actualChildren];
   const manualEditors=canModify?relations.map(([label,,inputId,key,placeholder,maxlength],index)=>actualValues[index]?"":`<label>${label}姓名<input id="${inputId}" maxlength="${maxlength}" value="${esc(p[key])}" placeholder="${placeholder}"></label>`).join(""):"";
   const motherSelector=canEdit()&&fathers.length?`<label class="mother-select-row"><span>展示母亲</span><select id="displayMotherSelect">
