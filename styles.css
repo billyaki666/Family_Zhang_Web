@@ -243,18 +243,18 @@ input[readonly] { color: #766d60; background: #eee8dd; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .identity-grid { display: grid; grid-template-columns: 1.4fr .78fr .9fr .78fr; gap: 10px; }
 .identity-grid label { min-width: 0; }
-#personNote { min-height: 210px; line-height: 1.65; }
-.drawer.readonly #personNote { min-height: 300px; }
+#personNote { min-height: 168px; line-height: 1.65; }
+.drawer.readonly #personNote { min-height: 240px; }
 .relation-box { border-top: 1px solid #d5c9b5; border-bottom: 1px solid #d5c9b5; padding: 8px 0; margin: 0 0 8px; }
 .relation-box h3 { font-size: 15px; margin: 0 0 7px; font-weight: 500; }
 .relation-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
 .relation-actions button { border: 1px solid #cdbfa9; background: #fffaf1; padding: 8px 4px; font-size: 12px; }
 .relation-list {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin: 8px 0 0;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px 8px; margin: 8px 0 0;
   font-size: 12px; color: var(--muted); line-height: 1.7;
 }
-.relation-list span { display: block; }
-.relation-list .relation-children { grid-column: 1 / -1; }
+.relation-list span { display: block; min-width:0; overflow-wrap:anywhere; }
+.relation-list .relation-children { grid-column: auto; }
 .mother-select-row {
   display: grid; grid-template-columns: 70px minmax(0, 1fr); align-items: center; gap: 8px;
   margin: 7px 0 0; color: var(--muted); font-size: 12px;
@@ -500,8 +500,8 @@ dialog::backdrop { background: rgba(39,31,22,.35); }
   .date-calendar-switch > span { justify-self: start; }
   .date-calendar-switch i { width: 76px; height: 30px; }
   textarea { min-height: 78px; }
-  #personNote { min-height: 210px; line-height: 1.65; }
-  .drawer.readonly #personNote { min-height: 330px; }
+  #personNote { min-height: 168px; line-height: 1.65; }
+  .drawer.readonly #personNote { min-height: 264px; }
   .identity-grid {
     grid-template-columns: minmax(96px, 1.55fr) minmax(50px, .65fr) minmax(70px, .9fr) minmax(50px, .65fr);
     gap: 8px;
@@ -527,13 +527,13 @@ dialog::backdrop { background: rgba(39,31,22,.35); }
   .relation-box { padding: 7px 0; margin: 0 0 7px; }
   .relation-box h3 { margin-bottom: 7px; }
   .relation-list {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; margin-top: 8px; line-height: 1.7;
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px 6px; margin-top: 8px; font-size: 11px; line-height: 1.55;
   }
-  .relation-list .relation-children { grid-column: 1 / -1; }
+  .relation-list .relation-children { grid-column: auto; }
   .mother-select-row select { min-height: 40px; }
   .manual-relation-editor input { min-height:40px; }
-  .relation-actions { grid-template-columns: 1fr 1fr; }
-  .relation-actions button { min-height: 42px; font-size: 13px; }
+  .relation-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); gap:6px; }
+  .relation-actions button { min-height: 42px; padding-left:2px; padding-right:2px; font-size: 12px; }
   .form-actions {
     position: sticky; left: 0; right: 0; bottom: calc(-1 * (78px + env(safe-area-inset-bottom)));
     z-index: 3; gap: 8px; margin: 10px -14px calc(-78px - env(safe-area-inset-bottom));
