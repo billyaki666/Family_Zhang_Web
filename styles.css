@@ -483,7 +483,7 @@ dialog::backdrop { background: rgba(39,31,22,.35); }
   .person-tooltip { display: none; }
   .drawer {
     top: auto; bottom: 0; left: 0; right: 0; width: 100%; height: min(86dvh, 720px);
-    padding: 14px 14px calc(78px + env(safe-area-inset-bottom));
+    padding: 14px 14px calc(8px + env(safe-area-inset-bottom));
     border-left: 0; border-top: 1px solid #cfc0aa; border-radius: 14px 14px 0 0;
     transform: translateY(105%); box-shadow: 0 -18px 42px rgba(48,34,20,.18);
   }
@@ -500,8 +500,8 @@ dialog::backdrop { background: rgba(39,31,22,.35); }
   .date-calendar-switch > span { justify-self: start; }
   .date-calendar-switch i { width: 76px; height: 30px; }
   textarea { min-height: 78px; }
-  #personNote { height:120px; min-height:120px; max-height:120px; line-height:1.6; overflow-y:auto; resize:none; }
-  .drawer.readonly #personNote { height:150px; min-height:150px; max-height:150px; }
+  #personNote { height:140px; min-height:140px; max-height:140px; line-height:1.6; overflow-y:auto; resize:none; }
+  .drawer.readonly #personNote { height:170px; min-height:170px; max-height:170px; }
   .identity-grid {
     grid-template-columns: minmax(96px, 1.55fr) minmax(50px, .65fr) minmax(70px, .9fr) minmax(50px, .65fr);
     gap: 8px;
@@ -535,8 +535,8 @@ dialog::backdrop { background: rgba(39,31,22,.35); }
   .relation-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); gap:6px; }
   .relation-actions button { min-height: 42px; padding-left:2px; padding-right:2px; font-size: 12px; }
   .form-actions {
-    position: sticky; left: 0; right: 0; bottom: calc(-1 * (78px + env(safe-area-inset-bottom)));
-    z-index: 3; gap: 8px; margin: 10px -14px calc(-78px - env(safe-area-inset-bottom));
+    position: sticky; left: 0; right: 0; bottom: calc(-1 * (8px + env(safe-area-inset-bottom)));
+    z-index: 3; gap: 8px; margin: 10px -14px calc(-8px - env(safe-area-inset-bottom));
     padding: 8px 14px calc(8px + env(safe-area-inset-bottom));
     background: rgba(247,242,232,.97); border-top: 1px solid #d8cbb7;
   }
