@@ -254,7 +254,7 @@ input[readonly] { color: #766d60; background: #eee8dd; }
   font-size: 13px; color: var(--muted); line-height: 1.7;
 }
 .relation-list span { display: block; min-width:0; overflow-wrap:anywhere; }
-.relation-list .relation-spouse { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:12px; }
+.relation-list .relation-spouse { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:inherit; }
 .relation-list .relation-children { grid-column: 1 / -1; }
 .mother-select-row {
   display: grid; grid-template-columns: 70px minmax(0, 1fr); align-items: center; gap: 8px;
