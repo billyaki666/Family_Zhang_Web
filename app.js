@@ -198,6 +198,8 @@ function createPersonRecord(values={}){
     tagColor: safeColor(values.tagColor),
     branchOrder: values.branchOrder === undefined || values.branchOrder === null || values.branchOrder === "" ? null : Number(values.branchOrder),
     displayMotherId: values.displayMotherId || "",
+    manualFatherName: values.manualFatherName || "",
+    manualMotherName: values.manualMotherName || "",
     birthDate: values.birthDate || "",
     birthCalendar: values.birthCalendar || "",
     birthSolar: values.birthSolar || "",
@@ -881,6 +883,8 @@ function formValuesForSnapshot(){
     deathCalendar:dateCalendarValue(),
     deathDate:$("#personDeathDate").value,
     deathUnknown:$("#personDeathUnknown").checked,
+    manualFatherName:$("#personFatherName")?.value||"",
+    manualMotherName:$("#personMotherName")?.value||"",
     note:$("#personNote").value
   };
 }
@@ -922,6 +926,8 @@ function buildPersonProposal(p){
     deathSolar:deathInfo.solar,
     deathLunar:deathInfo.lunar,
     deathUnknown,
+    manualFatherName:$("#personFatherName")?.value.trim()||"",
+    manualMotherName:$("#personMotherName")?.value.trim()||"",
     note:$("#personNote").value.trim()
   };
 }
@@ -935,7 +941,7 @@ async function submitPersonForm(options={}){
   if(!canModifyPerson(p.id)){await showAlert("当前账号没有此人物的编辑权限。");return false}
   const before={...p,tagItems:[...(p.tagItems||[])]};
   const proposed=buildPersonProposal(p);
-  const labels={name:"姓名",gender:"性别",generation:"世代",zi:"字辈",showZi:"字辈显示",tagMode:"标签模式",tagText:"标签",tagItems:"标签内容",tagColor:"标签颜色",birthDate:"出生时间",birthSolar:"出生阳历",birthLunar:"出生农历",birthUnknown:"出生不详",deathDate:"死亡时间",deathSolar:"死亡阳历",deathLunar:"死亡农历",deathUnknown:"死亡不详",note:"备注"};
+  const labels={name:"姓名",gender:"性别",generation:"世代",zi:"字辈",showZi:"字辈显示",tagMode:"标签模式",tagText:"标签",tagItems:"标签内容",tagColor:"标签颜色",birthDate:"出生时间",birthSolar:"出生阳历",birthLunar:"出生农历",birthUnknown:"出生不详",deathDate:"死亡时间",deathSolar:"死亡阳历",deathLunar:"死亡农历",deathUnknown:"死亡不详",manualFatherName:"父亲姓名",manualMotherName:"母亲姓名",note:"备注"};
   const changes=summarizeChanges(before,proposed,labels);
   if(!changes.length){markPersonFormClean();return true}
   if(canEdit()){
@@ -1030,21 +1036,34 @@ function parentDisplayInfo(child){
     || (motherCandidates.length===1?motherCandidates[0]:null);
   return {fathers,motherCandidates,selectedMother};
 }
+function displayedChildrenForPerson(id){
+  const direct=new Set(data.parentLinks.filter(link=>link.parent===id).map(link=>link.child));
+  return data.people.filter(child=>{
+    if(child.id===id)return false;
+    if(direct.has(child.id))return true;
+    const info=parentDisplayInfo(child);
+    return info.fathers.some(father=>father.id===id)||info.selectedMother?.id===id;
+  });
+}
 function renderRelationBox(id){
   const p=person(id);
   if(!p)return;
   const {fathers,motherCandidates,selectedMother}=parentDisplayInfo(p);
-  const children=data.parentLinks.filter(link=>link.parent===id).map(link=>person(link.child)?.name).filter(Boolean);
+  const children=displayedChildrenForPerson(id).map(child=>child.name);
   const spouses=relatedSpouses(id).map(spouse=>spouse.name);
   const relationButtons=["parent","spouse","child"].filter(type=>canAddRelationForPerson(id,type));
+  const spouseRecord=isSpouse(id);
+  const fatherText=p.manualFatherName||fathers.map(father=>father.name).join("、")||"未记录";
+  const motherText=p.manualMotherName||selectedMother?.name||"未记录";
+  const manualParentEditor=spouseRecord&&canModifyPerson(id)?`<div class="manual-parent-editor"><label>父亲姓名<input id="personFatherName" maxlength="20" value="${esc(p.manualFatherName)}" placeholder="手动填写"></label><label>母亲姓名<input id="personMotherName" maxlength="20" value="${esc(p.manualMotherName)}" placeholder="手动填写"></label></div>`:"";
   const motherSelector=canEdit()&&fathers.length?`<label class="mother-select-row"><span>展示母亲</span><select id="displayMotherSelect">
     <option value="">${motherCandidates.length?"请选择母亲":"父亲暂无配偶"}</option>
     ${motherCandidates.map(mother=>`<option value="${esc(mother.id)}" ${mother.id===(p.displayMotherId||selectedMother?.id)?"selected":""}>${esc(mother.name)}</option>`).join("")}
   </select></label>`:"";
   $("#relationBox").innerHTML=`<h3>亲属关系</h3>${relationButtons.length?`<div class="relation-actions">
     ${relationButtons.map(type=>`<button type="button" data-rel="${type}">＋ ${type==="parent"?"父母":type==="spouse"?"配偶":"子女"}</button>`).join("")}</div>`:""}
-    <div class="relation-list"><span>父亲：${esc(fathers.map(father=>father.name).join("、")||"未记录")}　母亲：${esc(selectedMother?.name||"未记录")}</span><span>配偶：${esc(spouses.join("、")||"未记录")}</span><span class="relation-children">子女：${esc(children.join("、")||"未记录")}</span></div>
-    ${motherSelector}`;
+    <div class="relation-list"><span>父亲：${esc(fatherText)}　母亲：${esc(motherText)}</span><span>配偶：${esc(spouses.join("、")||"未记录")}</span><span class="relation-children">子女：${esc(children.join("、")||"未记录")}</span></div>
+    ${manualParentEditor}${motherSelector}`;
   document.querySelectorAll("[data-rel]").forEach(button=>button.onclick=()=>openRelation(id,button.dataset.rel));
   const motherSelect=$("#displayMotherSelect");
   if(motherSelect)motherSelect.onchange=()=>{
