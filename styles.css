@@ -120,6 +120,16 @@ body.access-locked > :not(.access-gate):not(dialog) { visibility:hidden; }
   border-color: var(--red); z-index: 95;
   box-shadow: 0 0 0 4px rgba(140,47,37,.16), 0 8px 24px rgba(100,38,28,.18);
 }
+.branch-toggle {
+  position: absolute; z-index: 8; left: 50%; bottom: -22px; width: 22px; height: 22px; padding: 0;
+  display: grid; place-items: center; transform: translateX(-50%);
+  color: #fff; background: var(--red); border: 1px solid rgba(105,32,25,.72);
+  box-shadow: 0 4px 12px rgba(67,45,25,.16); font: 16px/1 Arial, sans-serif;
+}
+.branch-toggle:hover { background: var(--red-dark); }
+.branch-toggle.collapsed {
+  color: var(--red); background: rgba(255,253,247,.96); border-color: rgba(140,47,37,.45);
+}
 .person.search-dim { opacity: .22; }
 .person.search-hit { border-color: var(--red); box-shadow: 0 0 0 3px rgba(140,47,37,.15); }
 .person-top { position: relative; height: 53px; display: flex; flex-direction: row-reverse; justify-content: space-between; align-items: flex-start; }
@@ -481,6 +491,7 @@ dialog::backdrop { background: rgba(39,31,22,.35); }
   .gen-order { font-size: 9px; }
   .gen-zi { font-size: 10px; }
   .gen-zi b { font-size: 19px; }
+  .branch-toggle { bottom: -24px; width: 26px; height: 26px; font-size: 18px; }
   .person-tooltip { display: none; }
   .drawer {
     top: auto; bottom: 0; left: 0; right: 0; width: 100%; height:auto; max-height:min(86dvh, 720px);

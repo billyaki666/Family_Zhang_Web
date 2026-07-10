@@ -1,5 +1,7 @@
 import {json,readState,writeState,hashPassword,verifyPassword,sessionUser,createSession,sessionCookie,publicUser,normalizeAccount,namePinyin,accountMatches} from "../_shared/auth.js";
 
+const LOGIN_ERROR="账号或密码错误，或账号尚未通过审核";
+
 export async function onRequestGet({request,env}){const state=await readState(env.DB);return json({user:publicUser(sessionUser(request,state))})}
 export async function onRequestPost({request,env}){
   try{
@@ -13,11 +15,10 @@ export async function onRequestPost({request,env}){
     if(body.action==="login"){
       const username=normalizeAccount(body.username),people=state.data?.people||[];
       const user=(state.users||[]).find(item=>accountMatches(item,username,people)&&item.status!=="rejected");
-      const rejected=(state.users||[]).some(item=>accountMatches(item,username,people)&&item.status==="rejected");
       if(user){user.id=user.id||`legacy_${user.username}_${user.createdAt||"account"}`;user.status=user.status||"approved";user.approvalMode=user.approvalMode||"legacy"}
-      if(!user)return json({error:rejected?"该注册申请已被管理员拒绝":"该账号尚未注册，请先注册"},401);
-      if(user.status!=="approved")return json({error:"注册申请正在等待管理员审核"},401);
-      if(!(await verifyPassword(user,String(body.password||""))))return json({error:"密码错误，请重新输入"},401);
+      if(!user)return json({error:LOGIN_ERROR},401);
+      if(user.status!=="approved")return json({error:LOGIN_ERROR},401);
+      if(!(await verifyPassword(user,String(body.password||""))))return json({error:LOGIN_ERROR},401);
       if(!user.passwordDigest){const secure=await hashPassword(String(body.password));user.passwordSalt=secure.salt;user.passwordDigest=secure.digest;user.passwordIterations=secure.iterations;delete user.passwordHash}
       const session=createSession(state,user);await writeState(env.DB,state);return json({user:publicUser(user)},200,{"set-cookie":sessionCookie(session.token)});
     }

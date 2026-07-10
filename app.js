@@ -2,9 +2,11 @@ const ZI = ["", "启", "见", "文", "国", "荣", "仕", "万", "永", "秉", "
 const STORAGE_KEY = "zhang-family-tree-v4";
 const USERS_KEY = "zhang-family-users-v1";
 const SESSION_KEY = "zhang-family-session-v1";
+const OFFLINE_SESSION_KEY = "zhang-family-offline-session-v1";
 const HISTORY_KEY = "zhang-family-history-v1";
 const REQUESTS_KEY = "zhang-family-requests-v1";
 const ANNOUNCEMENTS_KEY = "zhang-family-announcements-v1";
+const COLLAPSED_BRANCHES_KEY = "zhang-family-collapsed-branches-v1";
 const CLOUD_DATA_ENDPOINT = "/api/data";
 const CARD_W = 64, SPOUSE_W = 48, CARD_H = 84, SPOUSE_GAP = 10, FAMILY_GAP = 18, ROW_GAP = 138, MARGIN = 110;
 const TAG_COLORS = [
@@ -98,6 +100,7 @@ let messageBoard = [];
 let currentUser = {username:"游客",role:"guest"};
 let scale=.72, panX=95, panY=50, selectedId=null, isPanning=false, spaceDown=false, start={}, personFormSnapshot="", touchState=null;
 let branchDragState=null, branchDragSuppressClick=false;
+let collapsedBranches=new Set();
 let requestPage=1, historyPage=1, memberPage=1;
 const HISTORY_PAGE_SIZE=10;
 const $ = s => document.querySelector(s);
@@ -105,7 +108,19 @@ const viewport=$("#viewport"), canvas=$("#canvas"), tree=$("#tree"), links=$("#l
 const save = () => saveCloudState();
 const person = id => data.people.find(p=>p.id===id);
 const esc = s => String(s||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const safeStatus = value => ["pending","approved","rejected"].includes(value) ? value : "pending";
+const safeImageSrc = value => {
+  const text=String(value||"");
+  return /^data:image\/(png|jpeg|webp|gif);base64,[a-z0-9+/=]+$/i.test(text) ? text : "";
+};
 function readStorage(key,fallback){try{return JSON.parse(localStorage.getItem(key))||fallback}catch{return fallback}}
+function loadCollapsedBranches(){
+  return new Set(readStorage(COLLAPSED_BRANCHES_KEY, []).map(String).filter(Boolean));
+}
+function persistCollapsedBranches(){
+  localStorage.setItem(COLLAPSED_BRANCHES_KEY, JSON.stringify([...collapsedBranches]));
+}
+collapsedBranches=loadCollapsedBranches();
 function normalizeUsers(source=[], dataSet=data){
   const storedUsers=Array.isArray(source)?source:[];
   const storedAdmin=storedUsers.find(user=>user.username==="admin123");
@@ -142,6 +157,25 @@ function fallbackState(){
     messageBoard: []
   };
 }
+function saveLocalState(){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(historyRecords));
+  localStorage.setItem(REQUESTS_KEY, JSON.stringify(changeRequests));
+  localStorage.setItem(ANNOUNCEMENTS_KEY, JSON.stringify(announcements));
+}
+function offlineAdminUser(){
+  return {id:"offline_admin999",username:"admin999",name:"离线测试管理员",generation:0,zi:"",role:"admin",status:"approved",approvalMode:"offline"};
+}
+function offlineSessionActive(){
+  return localStorage.getItem(OFFLINE_SESSION_KEY)==="admin999";
+}
+function enterOfflineAdminMode(){
+  localStorage.setItem(OFFLINE_SESSION_KEY,"admin999");
+  localStorage.setItem(SESSION_KEY,"admin999");
+  applyState(fallbackState());
+  currentUser=offlineAdminUser();
+}
 function applyState(state){
   data=normalizeDataSet(state?.data || initialData());
   users=normalizeUsers(state?.users || [], data);
@@ -169,6 +203,10 @@ async function loadCloudState(){
   applyState(payload.state);
 }
 async function saveCloudState(){
+  if(offlineSessionActive()){
+    saveLocalState();
+    return;
+  }
   try{
     const response=await fetch(CLOUD_DATA_ENDPOINT,{
       method:"POST",
@@ -188,11 +226,11 @@ function createPersonRecord(values={}){
     id: values.id || `p${Date.now()}${Math.random().toString(16).slice(2,5)}`,
     name: values.name || "新族人",
     generation,
-    gender: values.gender || "male",
+    gender: values.gender === "female" ? "female" : "male",
     zi: values.zi ?? (ZI[generation] || ""),
     note: values.note || "",
     showZi: values.showZi !== false,
-    tagMode: values.tagMode || "none",
+    tagMode: ["none","single","multiple"].includes(values.tagMode) ? values.tagMode : "none",
     tagText: values.tagText || "",
     tagItems: Array.isArray(values.tagItems) ? values.tagItems : [],
     tagColor: safeColor(values.tagColor),
@@ -557,13 +595,27 @@ function layout() {
     }
   });
   allUnits.forEach(unit=>unit.children.sort((a,b)=>unitOrder(a)-unitOrder(b)));
+  const roots=allUnits.filter(unit=>!unit.parent).sort((a,b)=>unitOrder(a)-unitOrder(b));
+  const visibleUnits=[];
+  const collectVisibleUnits=(unit,active=new Set())=>{
+    if(!unit||active.has(unit)||visibleUnits.includes(unit))return;
+    visibleUnits.push(unit);
+    if(collapsedBranches.has(unit.bloodId))return;
+    const nextActive=new Set(active);
+    nextActive.add(unit);
+    unit.children.forEach(child=>collectVisibleUnits(child,nextActive));
+  };
+  roots.forEach(root=>collectVisibleUnits(root));
+  const visibleUnitSet=new Set(visibleUnits);
   const buildCompactTree=(unit,active=new Set())=>{
     if(active.has(unit)){
       return {placements:new Map([[unit,0]]),left:[-unit.bloodOffset],right:[unit.width-unit.bloodOffset]};
     }
     const nextActive=new Set(active);
     nextActive.add(unit);
-    const childLayouts=unit.children.map(child=>buildCompactTree(child,nextActive));
+    const childLayouts=collapsedBranches.has(unit.bloodId)
+      ? []
+      : unit.children.filter(child=>visibleUnitSet.has(child)).map(child=>buildCompactTree(child,nextActive));
     if(!childLayouts.length){
       return {placements:new Map([[unit,0]]),left:[-unit.bloodOffset],right:[unit.width-unit.bloodOffset]};
     }
@@ -596,8 +648,7 @@ function layout() {
     });
     return {placements,left,right};
   };
-  const roots=allUnits.filter(unit=>!unit.parent).sort((a,b)=>unitOrder(a)-unitOrder(b));
-  const forestLayouts=roots.map(root=>buildCompactTree(root));
+  const forestLayouts=roots.filter(root=>visibleUnitSet.has(root)).map(root=>buildCompactTree(root));
   const forestLeft=[],forestRight=[];
   let rootCursor=0;
   forestLayouts.forEach((layout,index)=>{
@@ -616,13 +667,13 @@ function layout() {
     });
     rootCursor=Math.max(...forestRight)+FAMILY_GAP*2;
   });
-  allUnits.forEach(unit=>unit.x=unit.anchor-unit.bloodOffset);
-  const minX=Math.min(...allUnits.map(unit=>unit.x));
-  const maxX=Math.max(...allUnits.map(unit=>unit.x+unit.width));
+  visibleUnits.forEach(unit=>unit.x=unit.anchor-unit.bloodOffset);
+  const minX=Math.min(...visibleUnits.map(unit=>unit.x));
+  const maxX=Math.max(...visibleUnits.map(unit=>unit.x+unit.width));
   const globalShift=MARGIN-minX;
-  allUnits.forEach(unit=>unit.x+=globalShift);
+  visibleUnits.forEach(unit=>unit.x+=globalShift);
   const contentWidth=Math.max(maxX-minX,1000);
-  allUnits.forEach(unit => unit.members.forEach((id, index) => {
+  visibleUnits.forEach(unit => unit.members.forEach((id, index) => {
     const offset = unit.memberWidths.slice(0,index).reduce((sum,width)=>sum+width+SPOUSE_GAP,0);
     pos[id] = {x: unit.x + offset, y: (unit.generation-1)*ROW_GAP+35, width:unit.memberWidths[index]};
   }));
@@ -630,11 +681,12 @@ function layout() {
   const viewportWidth = viewport?.clientWidth || 1280;
   const centerShift = Math.max(0, (viewportWidth / scale - treeWidth) / 2);
   if (centerShift) {
-    allUnits.forEach(unit => unit.x += centerShift);
+    visibleUnits.forEach(unit => unit.x += centerShift);
     Object.values(pos).forEach(point => point.x += centerShift);
   }
   const maxWidth = treeWidth + centerShift * 2;
-  const height = Math.max(...data.people.map(p=>p.generation),1)*ROW_GAP+100;
+  const visibleGenerations=visibleUnits.map(unit=>unit.generation);
+  const height = Math.max(...visibleGenerations,1)*ROW_GAP+100;
   return {pos, unitByPerson, width:maxWidth, height};
 }
 function isSpouse(id) {
@@ -665,17 +717,24 @@ function unitParentIds(unit){
 }
 function canDragSortBranches(){return canEdit()&&!mobileView()}
 function canDragBranch(unit,p){return canDragSortBranches()&&unit&&p.id===unit.bloodId&&Boolean(unitParentKey(unit))}
+function renderBranchToggle(p,unit){
+  if(!unit||p.id!==unit.bloodId||!unit.children.length)return "";
+  const collapsed=collapsedBranches.has(p.id);
+  const label=collapsed?"展开下级分支":"收起下级分支";
+  return `<button class="branch-toggle ${collapsed?"collapsed":""}" type="button" data-branch-toggle="${esc(p.id)}" title="${label}" aria-label="${label}">${collapsed?"+":"-"}</button>`;
+}
 function render() {
   const {pos,unitByPerson,width,height}=layout();
   canvas.style.width=width+"px"; canvas.style.height=height+"px";
   links.setAttribute("width",width); links.setAttribute("height",height); links.setAttribute("viewBox",`0 0 ${width} ${height}`);
-  tree.innerHTML=data.people.map(p=>{
+  tree.innerHTML=data.people.filter(p=>pos[p.id]).map(p=>{
     const q=pos[p.id], spouse=isSpouse(p.id), deceased=Boolean(p.deathDate||p.deathUnknown);
     const unit=unitByPerson[p.id], branchDraggable=canDragBranch(unit,p);
-    return `<article class="person ${p.gender} ${spouse?"spouse":""} ${deceased?"deceased":""} ${branchDraggable?"branch-draggable":""} ${p.id===selectedId?"selected":""}" data-id="${p.id}" ${branchDraggable?'draggable="true" title="拖动调整同级分支顺序"':""} style="left:${q.x}px;top:${q.y}px">
+    return `<article class="person ${p.gender} ${spouse?"spouse":""} ${deceased?"deceased":""} ${branchDraggable?"branch-draggable":""} ${p.id===selectedId?"selected":""}" data-id="${esc(p.id)}" ${branchDraggable?'draggable="true" title="拖动调整同级分支顺序"':""} style="left:${q.x}px;top:${q.y}px">
       <div class="person-top"><span class="person-name">${esc(p.name)}</span>${p.showZi!==false?`<span class="zi-badge">${esc(p.zi||"未")}</span>`:""}</div>
       ${renderPersonTags(p)}
       ${renderPersonTooltip(p)}
+      ${renderBranchToggle(p,unit)}
     </article>`;
   }).join("");
   let svg="";
@@ -710,6 +769,7 @@ function render() {
   });
   links.innerHTML=svg;
   renderRail(pos); applyTransform();
+  setupBranchToggles();
   setupBranchDragSort(unitByPerson);
   document.querySelectorAll(".person").forEach(el=>el.onclick=()=>{if(branchDragSuppressClick){branchDragSuppressClick=false;return}openPerson(el.dataset.id)});
 }
@@ -810,8 +870,40 @@ function setupBranchDragSort(unitByPerson){
     };
   });
 }
+function setupBranchToggles(){
+  document.querySelectorAll("[data-branch-toggle]").forEach(button=>{
+    const stop=event=>event.stopPropagation();
+    button.onmousedown=stop;
+    button.ontouchstart=stop;
+    button.onclick=event=>{
+      event.preventDefault();
+      event.stopPropagation();
+      const id=button.dataset.branchToggle;
+      if(collapsedBranches.has(id))collapsedBranches.delete(id);
+      else collapsedBranches.add(id);
+      persistCollapsedBranches();
+      render();
+      focusPersonAtCenter(id);
+    };
+  });
+}
+function expandAncestorsForPerson(id){
+  const queue=[id], seen=new Set();
+  let changed=false;
+  while(queue.length){
+    const child=queue.shift();
+    if(seen.has(child))continue;
+    seen.add(child);
+    data.parentLinks.filter(link=>link.child===child).forEach(link=>{
+      if(collapsedBranches.delete(link.parent))changed=true;
+      queue.push(link.parent);
+    });
+  }
+  if(changed)persistCollapsedBranches();
+  return changed;
+}
 function renderRail(pos) {
-  const gens=[...new Set(data.people.map(p=>p.generation))].sort((a,b)=>a-b);
+  const gens=[...new Set(Object.keys(pos).map(id=>person(id)?.generation).filter(Boolean))].sort((a,b)=>a-b);
   $("#generationRail").innerHTML=gens.map(g=>`<div class="gen-tag" style="top:${((g-1)*ROW_GAP+35)*scale+panY}px"><span class="gen-order">第${toChinese(g)}世</span><span class="gen-zi">[<b>${ZI[g]||"未"}</b>]</span></div>`).join("");
 }
 function toChinese(n){const a=["零","一","二","三","四","五","六","七","八","九"]; return n<10?a[n]:n===10?"十":n<20?"十"+a[n%10]:"二十";}
@@ -829,12 +921,23 @@ function defaultFocusPersonId(){
 function focusPersonAtTop(id=defaultFocusPersonId()){
   const target=person(id);
   if(!target||!viewport)return;
+  expandAncestorsForPerson(id);
   const {pos}=layout();
   const point=pos[id];
   if(!point)return;
   const topOffset=mobileView()?36:54;
   panX=(viewport.clientWidth/2)-((point.x+point.width/2)*scale);
   panY=topOffset-(point.y*scale);
+  applyTransform();
+}
+function focusPersonAtCenter(id){
+  const target=person(id);
+  if(!target||!viewport)return;
+  const {pos}=layout();
+  const point=pos[id];
+  if(!point)return;
+  panX=(viewport.clientWidth/2)-((point.x+point.width/2)*scale);
+  panY=(viewport.clientHeight/2)-((point.y+CARD_H/2)*scale);
   applyTransform();
 }
 function scheduleFocusPersonAtTop(id=defaultFocusPersonId()){
@@ -1186,7 +1289,20 @@ $("#personDeathDate").oninput=updateDateHints;
 $("#personDateCalendarToggle").onchange=updateDateHints;
 $("#zoomIn").onclick=()=>{scale=Math.min(2,scale+.1);applyTransform()};$("#zoomOut").onclick=()=>{scale=Math.max(.3,scale-.1);applyTransform()};
 $("#resetView").onclick=()=>{resetViewState();focusPersonAtTop()};
-$("#searchInput").oninput=e=>{const q=e.target.value.trim().toLowerCase();document.querySelectorAll(".person").forEach(el=>{const hit=!q||person(el.dataset.id).name.toLowerCase().includes(q);el.classList.toggle("search-dim",!!q&&!hit);el.classList.toggle("search-hit",!!q&&hit);});};
+$("#searchInput").oninput=e=>{
+  const q=e.target.value.trim().toLowerCase();
+  if(q){
+    const expanded=data.people
+      .filter(p=>p.name.toLowerCase().includes(q))
+      .some(p=>expandAncestorsForPerson(p.id));
+    if(expanded)render();
+  }
+  document.querySelectorAll(".person").forEach(el=>{
+    const hit=!q||person(el.dataset.id).name.toLowerCase().includes(q);
+    el.classList.toggle("search-dim",!!q&&!hit);
+    el.classList.toggle("search-hit",!!q&&hit);
+  });
+};
 viewport.addEventListener("wheel",e=>{e.preventDefault();const rect=viewport.getBoundingClientRect(),mx=e.clientX-rect.left,my=e.clientY-rect.top,old=scale;scale=Math.max(.28,Math.min(2,scale*(e.deltaY>0?.9:1.1)));panX=mx-(mx-panX)*(scale/old);panY=my-(my-panY)*(scale/old);applyTransform();},{passive:false});
 viewport.onmousedown=e=>{if(e.button===1||(e.button===0&&spaceDown)){e.preventDefault();isPanning=true;start={x:e.clientX,y:e.clientY,px:panX,py:panY};viewport.classList.add("panning");}};
 window.onmousemove=e=>{if(isPanning){panX=start.px+e.clientX-start.x;panY=start.py+e.clientY-start.y;applyTransform();}};
@@ -1317,6 +1433,7 @@ $("#closeAuth").onclick=()=>$("#authDialog").close();
 $("#logoutBtn").onclick=async()=>{
   if(!(await confirmUnsavedPersonForm()))return;
   localStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(OFFLINE_SESSION_KEY);
   fetch("/api/auth",{method:"POST",credentials:"include",headers:{"content-type":"application/json"},body:JSON.stringify({action:"logout"})}).catch(()=>{});
   currentUser={username:"游客",role:"guest"};
   await closeDrawer(true);
@@ -1330,11 +1447,22 @@ function setupRegisterOptions(){
 $("#loginForm").onsubmit=async e=>{
   e.preventDefault();
   const submit=e.submitter||$("#loginForm button[type='submit']"),original=submit.textContent;submit.disabled=true;submit.textContent="正在登录…";setAuthMessage("#loginMessage","正在验证账号…","pending");
+  const username=$("#loginUsername").value.trim(), password=$("#loginPassword").value;
   try{
-    const username=$("#loginUsername").value.trim(),result=await apiJson("/api/auth",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"login",username,password:$("#loginPassword").value})});
+    const result=await apiJson("/api/auth",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"login",username,password})});
+    localStorage.removeItem(OFFLINE_SESSION_KEY);
     localStorage.setItem(SESSION_KEY,result.user.username);await loadCloudState();
     setAuthMessage("#loginMessage","登录成功，正在进入族谱…","success");$("#authDialog").close();$("#loginForm").reset();renderAuthState();renderAccessState();render();scheduleFocusPersonAtTop();await showAlert("登录成功，已进入族谱。","登录成功");
-  }catch(error){setAuthMessage("#loginMessage",error.message||"登录失败")}
+  }catch(error){
+    if(username==="admin999"&&password==="admin999"){
+      enterOfflineAdminMode();
+      setAuthMessage("#loginMessage","离线测试管理员登录成功，正在进入族谱…","success");
+      $("#authDialog").close();$("#loginForm").reset();renderAuthState();renderAccessState();render();scheduleFocusPersonAtTop();
+      await showAlert("已使用离线测试账号 admin999 进入族谱。当前修改会保存在本机浏览器缓存，不会同步云端。","离线登录成功");
+    }else{
+      setAuthMessage("#loginMessage",error.message||"登录失败");
+    }
+  }
   finally{submit.disabled=false;submit.textContent=original}
 };
 $("#registerForm").onsubmit=async e=>{
@@ -1348,6 +1476,7 @@ $("#registerForm").onsubmit=async e=>{
     const result=await apiJson("/api/auth",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"register",name,generation,password})});
     if(result.status==="approved"){
       const loginResult=await apiJson("/api/auth",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"login",username:name,password})});
+      localStorage.removeItem(OFFLINE_SESSION_KEY);
       localStorage.setItem(SESSION_KEY,loginResult.user.username);await loadCloudState();setAuthMessage("#registerMessage","注册成功，正在自动登录…","success");$("#registerForm").reset();$("#authDialog").close();renderAuthState();renderAccessState();render();scheduleFocusPersonAtTop();await showAlert("注册成功并已自动登录，现已进入族谱。","注册成功");
     }else{setAuthMessage("#registerMessage","注册申请已提交，正在等待管理员审核。审核通过后即可登录。","pending");$("#registerPassword").value="";$("#registerConfirm").value=""}
   }catch(error){setAuthMessage("#registerMessage",error.message||"注册失败，请稍后重试")}
@@ -1382,17 +1511,20 @@ function renderHistory(){
   const historySlice=paginate(visibleHistory,historyPage);
   requestPage=requestSlice.page; historyPage=historySlice.page;
   $("#historyTitle").textContent=canEdit()?"申请审核与修改记录":"我的改动申请";
-  $("#requestBody").innerHTML=requestSlice.items.length?requestSlice.items.map(request=>`<tr>
+  $("#requestBody").innerHTML=requestSlice.items.length?requestSlice.items.map(request=>{
+    const status=safeStatus(request.status);
+    return `<tr>
     <td>${esc(new Date(request.time).toLocaleString("zh-CN",{hour12:false}))}</td>
     <td>${esc(request.name)}${request.generation?` · 第${toChinese(+request.generation)}世`:""}</td>
     <td><strong>${esc(request.target)}</strong><br>${esc(request.detail)}</td>
-    <td><span class="status-tag ${request.status}">${request.status==="pending"?"待审核":request.status==="approved"?"已通过":"已驳回"}</span></td>
-    <td><span class="review-actions">${canEdit()&&request.status==="pending"?`<button class="primary-btn" data-review="approve" data-id="${request.id}">通过</button><button class="danger-btn" data-review="reject" data-id="${request.id}">驳回</button>`:""}${canEdit()?`<button class="danger-btn" data-delete-request="${request.id}">删除</button>`:"—"}</span></td>
-  </tr>`).join(""):`<tr><td colspan="5" class="history-empty">暂无改动申请</td></tr>`;
+    <td><span class="status-tag ${status}">${status==="pending"?"待审核":status==="approved"?"已通过":"已驳回"}</span></td>
+    <td><span class="review-actions">${canEdit()&&status==="pending"?`<button class="primary-btn" data-review="approve" data-id="${esc(request.id)}">通过</button><button class="danger-btn" data-review="reject" data-id="${esc(request.id)}">驳回</button>`:""}${canEdit()?`<button class="danger-btn" data-delete-request="${esc(request.id)}">删除</button>`:"—"}</span></td>
+  </tr>`;
+  }).join(""):`<tr><td colspan="5" class="history-empty">暂无改动申请</td></tr>`;
   $("#historyBody").innerHTML=historySlice.items.length?historySlice.items.map(record=>`<tr>
     <td>${esc(new Date(record.time).toLocaleString("zh-CN",{hour12:false}))}</td>
     <td>${esc(record.user)}</td><td>${esc(record.action)}</td><td>${esc(record.target)}</td><td>${esc(record.detail)}</td>
-    <td>${canEdit()?`<button class="danger-btn" data-delete-history="${record.id}">删除</button>`:"—"}</td>
+    <td>${canEdit()?`<button class="danger-btn" data-delete-history="${esc(record.id)}">删除</button>`:"—"}</td>
   </tr>`).join(""):`<tr><td colspan="6" class="history-empty">暂无修改记录</td></tr>`;
   renderPager("#requestPager",requestSlice.page,requestSlice.totalPages,"request");
   renderPager("#historyPager",historySlice.page,historySlice.totalPages,"history");
@@ -1441,7 +1573,8 @@ function renderMemberManagement(){
   const page=paginate(list,memberPage);memberPage=page.page;
   $("#memberBody").innerHTML=page.items.length?page.items.map(user=>{
     const linked=person(user.personId);
-    return `<tr><td>${user.createdAt&&user.createdAt!=="system"?esc(new Date(user.createdAt).toLocaleString("zh-CN",{hour12:false})):"旧账号"}</td><td>${esc(user.username)}${user.name&&user.name!==user.username?`<br><small>${esc(user.name)}</small>`:""}</td><td>${user.generation?`第${toChinese(+user.generation)}世`:"—"}</td><td>${esc(linked?.name||"未绑定")}</td><td><span class="status-tag ${user.status}">${memberStatusText(user.status)}</span></td><td>${user.approvalMode==="auto"?"自动通过":user.approvalMode==="manual"?"人工通过":"旧会员"}</td><td>已设置</td><td><span class="review-actions">${user.status==="pending"?`<button class="primary-btn" data-member-bind="${esc(user.id)}">通过并绑定</button><button class="danger-btn" data-member-reject="${esc(user.id)}">拒绝</button>`:`<button class="ghost-btn" data-member-bind="${esc(user.id)}">切换绑定</button><button class="ghost-btn" data-member-reset="${esc(user.id)}">重置密码</button>`}<button class="danger-btn" data-member-delete="${esc(user.id)}">删除</button></span></td></tr>`;
+    const status=safeStatus(user.status);
+    return `<tr><td>${user.createdAt&&user.createdAt!=="system"?esc(new Date(user.createdAt).toLocaleString("zh-CN",{hour12:false})):"旧账号"}</td><td>${esc(user.username)}${user.name&&user.name!==user.username?`<br><small>${esc(user.name)}</small>`:""}</td><td>${user.generation?`第${toChinese(+user.generation)}世`:"—"}</td><td>${esc(linked?.name||"未绑定")}</td><td><span class="status-tag ${status}">${memberStatusText(status)}</span></td><td>${user.approvalMode==="auto"?"自动通过":user.approvalMode==="manual"?"人工通过":"旧会员"}</td><td>已设置</td><td><span class="review-actions">${status==="pending"?`<button class="primary-btn" data-member-bind="${esc(user.id)}">通过并绑定</button><button class="danger-btn" data-member-reject="${esc(user.id)}">拒绝</button>`:`<button class="ghost-btn" data-member-bind="${esc(user.id)}">切换绑定</button><button class="ghost-btn" data-member-reset="${esc(user.id)}">重置密码</button>`}<button class="danger-btn" data-member-delete="${esc(user.id)}">删除</button></span></td></tr>`;
   }).join(""):`<tr><td colspan="8" class="history-empty">暂无会员记录</td></tr>`;
   renderPager("#memberPager",page.page,page.totalPages,"member");
   document.querySelectorAll("[data-member-bind]").forEach(button=>button.onclick=()=>openMemberBind(button.dataset.memberBind));
@@ -1532,10 +1665,13 @@ function renderAnnouncement(){
   $("#announcementText").textContent=latest?.content||"欢迎查阅张氏族谱";
 }
 function renderAnnouncementHistory(){
-  $("#announcementHistory").innerHTML=announcements.length?announcements.map(item=>`<article class="announcement-item">
+  $("#announcementHistory").innerHTML=announcements.length?announcements.map(item=>{
+    const image=safeImageSrc(item.image);
+    return `<article class="announcement-item">
     <time>${esc(new Date(item.time).toLocaleString("zh-CN",{hour12:false}))} · ${esc(item.user)}</time>
-    <p>${esc(item.content)}</p>${item.image?`<img src="${item.image}" alt="公告图片">`:""}
-  </article>`).join(""):`<div class="announcement-empty">暂无历史公告</div>`;
+    <p>${esc(item.content)}</p>${image?`<img src="${esc(image)}" alt="公告图片">`:""}
+  </article>`;
+  }).join(""):`<div class="announcement-empty">暂无历史公告</div>`;
 }
 function openAnnouncementDialog(editMode){
   $("#announcementDialogTitle").textContent=editMode?"发布公告":"历史公告";
@@ -1631,8 +1767,12 @@ async function initializeApp(){
   setupMobileMenu();
   setupAccessWaveCanvas();
   setupPasswordToggles();
-  const sessionResponse=await fetch("/api/auth",{cache:"no-store",credentials:"include"}).catch(()=>null),session=sessionResponse?.ok?await sessionResponse.json():{user:null};
-  if(session.user){localStorage.setItem(SESSION_KEY,session.user.username);await loadCloudState()}else{localStorage.removeItem(SESSION_KEY);applyState(fallbackState());currentUser={username:"游客",role:"guest"}}
+  if(offlineSessionActive()){
+    enterOfflineAdminMode();
+  }else{
+    const sessionResponse=await fetch("/api/auth",{cache:"no-store",credentials:"include"}).catch(()=>null),session=sessionResponse?.ok?await sessionResponse.json():{user:null};
+    if(session.user){localStorage.setItem(SESSION_KEY,session.user.username);await loadCloudState()}else{localStorage.removeItem(SESSION_KEY);applyState(fallbackState());currentUser={username:"游客",role:"guest"}}
+  }
   setupRegisterOptions();
   resetViewState();
   render();
@@ -1643,9 +1783,13 @@ async function initializeApp(){
 }
 initializeApp().catch(async error=>{
   console.error("应用初始化失败",error);
-  localStorage.removeItem(SESSION_KEY);
-  applyState(fallbackState());
-  currentUser={username:"游客",role:"guest"};
+  if(offlineSessionActive()){
+    enterOfflineAdminMode();
+  }else{
+    localStorage.removeItem(SESSION_KEY);
+    applyState(fallbackState());
+    currentUser={username:"游客",role:"guest"};
+  }
   setupRegisterOptions();
   resetViewState();
   render();
@@ -1653,5 +1797,5 @@ initializeApp().catch(async error=>{
   renderAccessState();
   scheduleFocusPersonAtTop();
   renderAnnouncement();
-  await showAlert("云端数据读取失败，已临时显示本地初始数据。请稍后刷新重试。");
+  if(!offlineSessionActive())await showAlert("云端数据读取失败，已临时显示本地初始数据。请稍后刷新重试。");
 });
