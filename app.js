@@ -1,4 +1,4 @@
-const ZI = ["", "启", "见", "文", "国", "荣", "仕", "万", "永", "秉", "守", "天", "良", "其", "源", "必", "昌"];
+const ZI = ["", "启", "见", "文", "国", "荣", "仕", "万", "永", "秉", "守", "天", "良", "其", "源", "必", "昌", "克"];
 const STORAGE_KEY = "zhang-family-tree-v4";
 const USERS_KEY = "zhang-family-users-v1";
 const SESSION_KEY = "zhang-family-session-v1";
@@ -100,6 +100,7 @@ let messageBoard = [];
 let currentUser = {username:"游客",role:"guest"};
 let scale=.72, panX=95, panY=50, selectedId=null, isPanning=false, spaceDown=false, start={}, personFormSnapshot="", touchState=null;
 let branchDragState=null, branchDragSuppressClick=false;
+let renderedLayout=null;
 let collapsedBranches=new Set();
 let requestPage=1, historyPage=1, memberPage=1;
 const HISTORY_PAGE_SIZE=10;
@@ -544,43 +545,52 @@ function renderAccessState(){
 
 function layout() {
   const pos = {}, unitByPerson = {}, unitsByGen = new Map(), visited = new Set();
+  const peopleById=new Map(data.people.map(p=>[p.id,p]));
+  const parentsByChild=new Map(), parents=new Set(), children=new Set(), spouseIds=new Set();
+  data.parentLinks.forEach(link=>{
+    parents.add(link.parent); children.add(link.child);
+    if(!parentsByChild.has(link.child))parentsByChild.set(link.child,[]);
+    parentsByChild.get(link.child).push(link.parent);
+  });
   const spouseMap = new Map();
   data.unions.forEach(u => u.partners.forEach(id => {
+    spouseIds.add(id);
     if (!spouseMap.has(id)) spouseMap.set(id, []);
     spouseMap.get(id).push(...u.partners.filter(p => p !== id));
   }));
   data.people.forEach(p => {
     if (visited.has(p.id)) return;
     const component=[], queue=[p.id];
-    while(queue.length){
-      const id=queue.shift();
+    for(let i=0;i<queue.length;i++){
+      const id=queue[i];
       if(visited.has(id))continue;
       visited.add(id);
       component.push(id);
       (spouseMap.get(id)||[]).forEach(spouseId=>{
-        if(!visited.has(spouseId)&&person(spouseId)?.generation===p.generation)queue.push(spouseId);
+        if(!visited.has(spouseId)&&peopleById.get(spouseId)?.generation===p.generation)queue.push(spouseId);
       });
     }
-    const bloodId=component.find(id=>data.parentLinks.some(l=>l.child===id))
-      || component.find(id=>data.parentLinks.some(l=>l.parent===id))
+    const bloodId=component.find(id=>children.has(id))
+      || component.find(id=>parents.has(id))
       || component[0];
     const members=[...component].sort((a,b)=>{
       const genderOrder={male:0,female:1};
-      const difference=(genderOrder[person(a)?.gender]??2)-(genderOrder[person(b)?.gender]??2);
+      const difference=(genderOrder[peopleById.get(a)?.gender]??2)-(genderOrder[peopleById.get(b)?.gender]??2);
       if(difference)return difference;
       if(a===bloodId)return -1;
       if(b===bloodId)return 1;
       return Number(a.replace(/\D/g,""))-Number(b.replace(/\D/g,""));
     });
     members.forEach(id => visited.add(id));
-    const unit = {id:bloodId,bloodId,members,generation:person(bloodId).generation};
+    const unit = {id:bloodId,bloodId,members,generation:peopleById.get(bloodId).generation,
+      bloodPerson:peopleById.get(bloodId), parentIds:members.flatMap(id=>parentsByChild.get(id)||[])};
     members.forEach(id => unitByPerson[id] = unit);
     if (!unitsByGen.has(unit.generation)) unitsByGen.set(unit.generation, []);
     unitsByGen.get(unit.generation).push(unit);
   });
   const allUnits = [...unitsByGen.values()].flat();
   allUnits.forEach(unit => {
-    unit.memberWidths = unit.members.map(id => isSpouse(id) ? SPOUSE_W : CARD_W);
+    unit.memberWidths = unit.members.map(id => spouseIds.has(id)&&!children.has(id)&&!parents.has(id) ? SPOUSE_W : CARD_W);
     unit.width = unit.memberWidths.reduce((sum, width) => sum + width, 0) + (unit.members.length - 1) * SPOUSE_GAP;
     unit.children = [];
     const bloodIndex=unit.members.indexOf(unit.bloodId);
@@ -596,17 +606,17 @@ function layout() {
   });
   allUnits.forEach(unit=>unit.children.sort((a,b)=>unitOrder(a)-unitOrder(b)));
   const roots=allUnits.filter(unit=>!unit.parent).sort((a,b)=>unitOrder(a)-unitOrder(b));
-  const visibleUnits=[];
+  const visibleUnits=[], visibleUnitSet=new Set();
   const collectVisibleUnits=(unit,active=new Set())=>{
-    if(!unit||active.has(unit)||visibleUnits.includes(unit))return;
+    if(!unit||active.has(unit)||visibleUnitSet.has(unit))return;
     visibleUnits.push(unit);
+    visibleUnitSet.add(unit);
     if(collapsedBranches.has(unit.bloodId))return;
     const nextActive=new Set(active);
     nextActive.add(unit);
     unit.children.forEach(child=>collectVisibleUnits(child,nextActive));
   };
   roots.forEach(root=>collectVisibleUnits(root));
-  const visibleUnitSet=new Set(visibleUnits);
   const buildCompactTree=(unit,active=new Set())=>{
     if(active.has(unit)){
       return {placements:new Map([[unit,0]]),left:[-unit.bloodOffset],right:[unit.width-unit.bloodOffset]};
@@ -668,8 +678,8 @@ function layout() {
     rootCursor=Math.max(...forestRight)+FAMILY_GAP*2;
   });
   visibleUnits.forEach(unit=>unit.x=unit.anchor-unit.bloodOffset);
-  const minX=Math.min(...visibleUnits.map(unit=>unit.x));
-  const maxX=Math.max(...visibleUnits.map(unit=>unit.x+unit.width));
+  const minX=visibleUnits.length?Math.min(...visibleUnits.map(unit=>unit.x)):0;
+  const maxX=visibleUnits.length?Math.max(...visibleUnits.map(unit=>unit.x+unit.width)):0;
   const globalShift=MARGIN-minX;
   visibleUnits.forEach(unit=>unit.x+=globalShift);
   const contentWidth=Math.max(maxX-minX,1000);
@@ -687,7 +697,7 @@ function layout() {
   const maxWidth = treeWidth + centerShift * 2;
   const visibleGenerations=visibleUnits.map(unit=>unit.generation);
   const height = Math.max(...visibleGenerations,1)*ROW_GAP+100;
-  return {pos, unitByPerson, width:maxWidth, height};
+  return {pos, unitByPerson, width:maxWidth, height, generations:[...new Set(visibleGenerations)].sort((a,b)=>a-b), spouseIds:new Set([...spouseIds].filter(id=>!children.has(id)&&!parents.has(id)))};
 }
 function isSpouse(id) {
   return data.unions.some(u => u.partners.includes(id))
@@ -703,14 +713,14 @@ function unitAnchor(unit, pos, edge) {
   };
 }
 function unitOrder(unit) {
-  const links = unit.members.flatMap(id => data.parentLinks.filter(l => l.child === id));
-  const parentNo = links.length ? Number(links[0].parent.replace(/\D/g,"")) : 0;
-  const savedOrder=person(unit.bloodId)?.branchOrder;
+  const parentIds=unit.parentIds ?? unit.members.flatMap(id=>data.parentLinks.filter(l=>l.child===id).map(l=>l.parent));
+  const parentNo = parentIds.length ? Number(parentIds[0].replace(/\D/g,"")) : 0;
+  const savedOrder=(unit.bloodPerson ?? person(unit.bloodId))?.branchOrder;
   const order=Number.isFinite(savedOrder)?savedOrder:Number(unit.id.replace(/\D/g,""));
   return parentNo * 100000 + order;
 }
 function unitParentKey(unit){
-  return unit.members.flatMap(id=>data.parentLinks.filter(link=>link.child===id).map(link=>link.parent)).sort().join("|");
+  return [...(unit.parentIds ?? unit.members.flatMap(id=>data.parentLinks.filter(link=>link.child===id).map(link=>link.parent)))].sort().join("|");
 }
 function unitParentIds(unit){
   return [...new Set(unit.members.flatMap(id=>data.parentLinks.filter(link=>link.child===id).map(link=>link.parent)))].sort();
@@ -724,11 +734,11 @@ function renderBranchToggle(p,unit){
   return `<button class="branch-toggle ${collapsed?"collapsed":""}" type="button" data-branch-toggle="${esc(p.id)}" title="${label}" aria-label="${label}">${collapsed?"+":"-"}</button>`;
 }
 function render() {
-  const {pos,unitByPerson,width,height}=layout();
+  const {pos,unitByPerson,width,height,spouseIds}=renderedLayout=layout();
   canvas.style.width=width+"px"; canvas.style.height=height+"px";
   links.setAttribute("width",width); links.setAttribute("height",height); links.setAttribute("viewBox",`0 0 ${width} ${height}`);
   tree.innerHTML=data.people.filter(p=>pos[p.id]).map(p=>{
-    const q=pos[p.id], spouse=isSpouse(p.id), deceased=Boolean(p.deathDate||p.deathUnknown);
+    const q=pos[p.id], spouse=spouseIds.has(p.id), deceased=Boolean(p.deathDate||p.deathUnknown);
     const unit=unitByPerson[p.id], branchDraggable=canDragBranch(unit,p);
     return `<article class="person ${p.gender} ${spouse?"spouse":""} ${deceased?"deceased":""} ${branchDraggable?"branch-draggable":""} ${p.id===selectedId?"selected":""}" data-id="${esc(p.id)}" ${branchDraggable?'draggable="true" title="拖动调整同级分支顺序"':""} style="left:${q.x}px;top:${q.y}px">
       <div class="person-top"><span class="person-name">${esc(p.name)}</span>${p.showZi!==false?`<span class="zi-badge">${esc(p.zi||"未")}</span>`:""}</div>
@@ -768,7 +778,7 @@ function render() {
     svg+=`<path class="blood-link-bg" d="${d}"/><path class="blood-link" d="${d}"/>`;
   });
   links.innerHTML=svg;
-  renderRail(pos); applyTransform();
+  applyTransform();
   setupBranchToggles();
   setupBranchDragSort(unitByPerson);
   document.querySelectorAll(".person").forEach(el=>el.onclick=()=>{if(branchDragSuppressClick){branchDragSuppressClick=false;return}openPerson(el.dataset.id)});
@@ -902,13 +912,12 @@ function expandAncestorsForPerson(id){
   if(changed)persistCollapsedBranches();
   return changed;
 }
-function renderRail(pos) {
-  const gens=[...new Set(Object.keys(pos).map(id=>person(id)?.generation).filter(Boolean))].sort((a,b)=>a-b);
+function renderRail(gens) {
   $("#generationRail").innerHTML=gens.map(g=>`<div class="gen-tag" style="top:${((g-1)*ROW_GAP+35)*scale+panY}px"><span class="gen-order">第${toChinese(g)}世</span><span class="gen-zi">[<b>${ZI[g]||"未"}</b>]</span></div>`).join("");
 }
 function toChinese(n){const a=["零","一","二","三","四","五","六","七","八","九"]; return n<10?a[n]:n===10?"十":n<20?"十"+a[n%10]:"二十";}
 function safeColor(value){return /^#[0-9a-f]{6}$/i.test(value||"")?value:"#8c2f25";}
-function applyTransform(){canvas.style.transform=`translate(${panX}px,${panY}px) scale(${scale})`;$("#zoomLabel").textContent=Math.round(scale*100)+"%"; const {pos}=layout();renderRail(pos);}
+function applyTransform(){canvas.style.transform=`translate(${panX}px,${panY}px) scale(${scale})`;$("#zoomLabel").textContent=Math.round(scale*100)+"%"; if(renderedLayout)renderRail(renderedLayout.generations);}
 function mobileView(){return window.matchMedia("(max-width: 800px)").matches}
 function resetViewState(){
   if(mobileView()){scale=.46;panX=46;panY=32}
@@ -921,8 +930,8 @@ function defaultFocusPersonId(){
 function focusPersonAtTop(id=defaultFocusPersonId()){
   const target=person(id);
   if(!target||!viewport)return;
-  expandAncestorsForPerson(id);
-  const {pos}=layout();
+  if(expandAncestorsForPerson(id)||!renderedLayout)render();
+  const {pos}=renderedLayout;
   const point=pos[id];
   if(!point)return;
   const topOffset=mobileView()?36:54;
@@ -933,7 +942,7 @@ function focusPersonAtTop(id=defaultFocusPersonId()){
 function focusPersonAtCenter(id){
   const target=person(id);
   if(!target||!viewport)return;
-  const {pos}=layout();
+  const {pos}=renderedLayout||layout();
   const point=pos[id];
   if(!point)return;
   panX=(viewport.clientWidth/2)-((point.x+point.width/2)*scale);
